@@ -1,0 +1,43 @@
+name: CSLC pipeline (daily)
+
+# Runs the funding/OI fetcher once a day and commits the updated CSV.
+on:
+  schedule:
+    - cron: "30 0 * * *"   # 00:30 UTC daily (after the 00:00 UTC funding stamp)
+  workflow_dispatch: {}     # also lets you run it manually from the Actions tab
+
+permissions:
+  contents: write           # needed to commit the refreshed CSV back to the repo
+
+concurrency:
+  group: cslc-daily
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # No pip install: funding_oi.py is stdlib-only (urllib/csv/json/statistics).
+
+      - name: Run funding/OI fetcher
+        run: python fetchers/funding_oi.py
+
+      - name: Commit updated CSV
+        run: |
+          git config user.name  "cslc-bot"
+          git config user.email "cslc-bot@users.noreply.github.com"
+          git add data/funding_oi.csv
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "data: funding_oi update $(date -u +%Y-%m-%d)"
+            git push
+          fi
