@@ -1,13 +1,13 @@
 name: CSLC pipeline (daily)
 
-# Runs the funding/OI fetcher once a day and commits the updated CSV.
+# Runs the CSLC fetchers once a day and commits the updated CSVs.
 on:
   schedule:
-    - cron: "30 0 * * *"   # 00:30 UTC daily (after the 00:00 UTC funding stamp)
-  workflow_dispatch: {}     # also lets you run it manually from the Actions tab
+    - cron: "30 0 * * *"   # 00:30 UTC daily
+  workflow_dispatch: {}     # manual run button in the Actions tab
 
 permissions:
-  contents: write           # needed to commit the refreshed CSV back to the repo
+  contents: write           # to commit refreshed CSVs back to the repo
 
 concurrency:
   group: cslc-daily
@@ -25,19 +25,22 @@ jobs:
         with:
           python-version: "3.12"
 
-      # No pip install: funding_oi.py is stdlib-only (urllib/csv/json/statistics).
+      # No pip install: all fetchers are stdlib-only.
 
-      - name: Run funding/OI fetcher
+      - name: Funding / OI (Bybit/OKX/Deribit/Hyperliquid)
         run: python fetchers/funding_oi.py
 
-      - name: Commit updated CSV
+      - name: Stablecoins (DefiLlama -> SIVI)
+        run: python fetchers/stablecoins.py
+
+      - name: Commit updated CSVs
         run: |
           git config user.name  "cslc-bot"
           git config user.email "cslc-bot@users.noreply.github.com"
-          git add data/funding_oi.csv
+          git add data/funding_oi.csv data/stablecoins.csv
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "data: funding_oi update $(date -u +%Y-%m-%d)"
+            git commit -m "data: pipeline update $(date -u +%Y-%m-%d)"
             git push
           fi
