@@ -1,6 +1,6 @@
 name: CSLC pipeline (daily)
 
-# Runs the CSLC fetchers once a day and commits the updated CSVs.
+# Runs the three CSLC fetchers once a day and commits the updated CSVs.
 on:
   schedule:
     - cron: "30 0 * * *"   # 00:30 UTC daily
@@ -27,17 +27,20 @@ jobs:
 
       # No pip install: all fetchers are stdlib-only.
 
-      - name: Funding / OI (Bybit/OKX/Deribit/Hyperliquid)
+      - name: Funding / OI (Bybit/OKX/Deribit/Hyperliquid -> CEFDI/OFPR)
         run: python fetchers/funding_oi.py
 
       - name: Stablecoins (DefiLlama -> SIVI)
         run: python fetchers/stablecoins.py
 
+      - name: On-chain (CoinMetrics -> MVRV-Z)
+        run: python fetchers/onchain.py
+
       - name: Commit updated CSVs
         run: |
           git config user.name  "cslc-bot"
           git config user.email "cslc-bot@users.noreply.github.com"
-          git add data/funding_oi.csv data/stablecoins.csv
+          git add data/funding_oi.csv data/stablecoins.csv data/onchain.csv
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
