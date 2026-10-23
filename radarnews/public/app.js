@@ -93,7 +93,9 @@ function renderLive() {
   el.classList.toggle('syncing', ui.syncing);
   el.classList.toggle('err', !!err && !ui.syncing);
   const last = d.last_sync?.finished_at;
-  $('#live-text').textContent = ui.syncing ? 'Sincronizando…' : err ? 'Error de sincronización' : last ? `En vivo · ${relTime(last)}` : 'En vivo';
+  const stale = !ui.syncing && !err && last && Date.now() - Date.parse(last) > 15 * 60_000;
+  el.classList.toggle('stale', !!stale);
+  $('#live-text').textContent = ui.syncing ? 'Sincronizando…' : err ? 'Error de sincronización' : stale ? `Sin datos · ${relTime(last)}` : last ? `En vivo · ${relTime(last)}` : 'En vivo';
   el.title = `${last ? `Última sincronización ${new Date(last).toLocaleTimeString('es-ES')}` : 'Sin sincronizar'} · próxima en ${countdown(Date.parse(d.next_sync_at) - Date.now())}`;
 }
 
@@ -107,8 +109,11 @@ function setSyncing(on) {
 function renderStatus() {
   const d = ui.data;
   const band = $('#error-band');
-  band.hidden = !d.error;
-  band.textContent = d.error ? `Error de sincronización: ${d.error}` : '';
+  const last = d.last_sync?.finished_at;
+  const stale = last && Date.now() - Date.parse(last) > 15 * 60_000 && !d.syncing;
+  band.hidden = !d.error && !stale;
+  band.textContent = d.error ? `Error de sincronización: ${d.error}`
+    : stale ? `Sin sincronizar desde ${fmtTime(last)}. ¿Está el Mac en reposo o apagado? Las alertas se reanudan al despertarlo.` : '';
   setSyncing(d.syncing);
 }
 
@@ -441,9 +446,9 @@ function renderNotif() {
   $('#ios-install').hidden = st !== 'ios-browser';
   btn.textContent = st === 'push' ? 'Activas' : 'Activar';
   btn.classList.toggle('on', st === 'push');
-  $('#notif-test').hidden = st !== 'push' && st !== 'local';
   const n = ui.data?.push_devices ?? 0;
-  $('#push-devices').textContent = `${n} ${n === 1 ? 'dispositivo suscrito' : 'dispositivos suscritos'}`;
+  $('#notif-test').disabled = n === 0;
+  $('#notif-test').textContent = n ? `Enviar prueba a todos (${n})` : 'Enviar prueba a todos';
   $('#notif-hint').hidden = ['push', 'unsupported', 'denied', 'ios-browser'].includes(st);
 }
 
@@ -470,6 +475,62 @@ function urlB64ToUint8Array(b64) {
   return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
 }
 
+function deviceLabel() {
+  const ua = navigator.userAgent;
+  const kind = /iPhone|iPod/.test(ua) ? 'iPhone' : /iPad/.test(ua) || (IS_IOS && !/iPhone/.test(ua)) ? 'iPad' : /Macintosh/.test(ua) ? 'Mac' : /Android/.test(ua) ? 'Android' : 'Ordenador';
+  const browser = IS_STANDALONE ? 'app' : /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : 'Safari';
+  return `${kind} · ${browser}`;
+}
+
+async function postSubscription(sub) {
+  const { id } = await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub, label: deviceLabel() }) });
+  localStorage.setItem('rn-device-id', id);
+  ui.pushOn = true;
+  localStorage.setItem('rn-push', '1');
+}
+
+// iOS can silently rotate or drop a subscription; re-register on every launch so alerts keep arriving.
+async function syncSubscription() {
+  if (!ui.swReg || !('PushManager' in window) || !('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    let sub = await ui.swReg.pushManager.getSubscription();
+    if (!sub) {
+      const { publicKey } = await api('/api/push/key');
+      sub = await ui.swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(publicKey) });
+    }
+    await postSubscription(sub);
+  } catch (err) {
+    console.warn('No se pudo renovar la suscripción push:', err);
+  }
+}
+
+const DEVICE_ICON = {
+  iPhone: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18h2"/></svg>',
+  iPad: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="2" width="16" height="20" rx="2.5"/><path d="M11 18h2"/></svg>',
+  Mac: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M2 20h20"/></svg>',
+};
+
+async function renderDevicesList() {
+  const el = $('#device-list');
+  let devices = [];
+  try {
+    ({ devices } = await api('/api/push/devices'));
+  } catch (err) {
+    el.innerHTML = `<li class="empty">${esc(err.message)}</li>`;
+    return;
+  }
+  const mine = localStorage.getItem('rn-device-id');
+  el.innerHTML = devices.length ? devices.map((d) => {
+    const label = d.label || 'Dispositivo';
+    const kind = label.split(' · ')[0];
+    const status = d.last_error ? `<div class="dev-sub err" title="${esc(d.last_error)}">Error de entrega ${relTime(d.last_error_at)}</div>`
+      : `<div class="dev-sub">${d.last_ok_at ? `Última alerta entregada ${relTime(d.last_ok_at)}` : `Suscrito ${relTime(d.created_at)}`}</div>`;
+    return `<li><span class="dev-icon">${DEVICE_ICON[kind] || DEVICE_ICON.Mac}</span>
+      <div class="dev-main"><div class="dev-name">${esc(label)}${d.id === mine ? '<small>este</small>' : ''}</div>${status}</div>
+      <button class="link danger" data-remove-device="${esc(d.id)}">Quitar</button></li>`;
+  }).join('') : '<li class="empty">Ningún dispositivo todavía. Pulsa Activar en cada uno.</li>';
+}
+
 async function enableNotifications() {
   if (!('Notification' in window)) return;
   const perm = await Notification.requestPermission();
@@ -479,9 +540,7 @@ async function enableNotifications() {
       const { publicKey } = await api('/api/push/key');
       const sub = (await ui.swReg.pushManager.getSubscription())
         || await ui.swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(publicKey) });
-      await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
-      ui.pushOn = true;
-      localStorage.setItem('rn-push', '1');
+      await postSubscription(sub);
       toast({ level: 'alto', title: 'Notificaciones activadas', body: 'Recibirás las alertas en este dispositivo.' });
     }
   } catch (err) {
@@ -490,15 +549,19 @@ async function enableNotifications() {
     localStorage.removeItem('rn-push');
   }
   await load();
+  renderDevicesList();
 }
 
 async function testNotification() {
-  if (ui.pushOn) {
-    const { sent } = await api('/api/push/test', { method: 'POST' });
-    toast({ title: 'Prueba enviada', body: `${sent} ${sent === 1 ? 'dispositivo' : 'dispositivos'}` });
-  } else {
-    localNotify({ id: Date.now(), title: 'Prueba de RadarNews', body: 'Las notificaciones funcionan con la app abierta.' });
+  const out = $('#test-result');
+  out.textContent = 'Enviando…';
+  try {
+    const { sent, devices } = await api('/api/push/test', { method: 'POST' });
+    out.textContent = `Entregada a ${sent} de ${devices} ${devices === 1 ? 'dispositivo' : 'dispositivos'}.`;
+  } catch (err) {
+    out.textContent = err.message;
   }
+  renderDevicesList();
 }
 
 // ---------------------------------------------------------------- health & settings
@@ -582,6 +645,13 @@ async function removeGemini() {
   await load();
 }
 
+function awakeNote() {
+  if (ui.data?.platform !== 'darwin') return '';
+  return ui.data.keep_awake
+    ? '<div class="card awake"><div class="card-title">El Mac se mantiene despierto</div><div class="muted">Mientras RadarNews funciona, el Mac no entra en reposo (la pantalla sí se apaga), para que las alertas sigan llegando a tus iPhone. Si es un portátil, déjalo enchufado y abierto, o cerrado con pantalla externa: con la tapa cerrada macOS lo duerme igualmente.</div></div>'
+    : '<div class="card awake"><div class="card-title">Reposo del Mac</div><div class="muted">Si el Mac entra en reposo, las alertas dejan de llegar a los iPhone hasta que despierte.</div></div>';
+}
+
 async function renderDevices() {
   const el = $('#devices-body');
   let d;
@@ -609,7 +679,7 @@ async function renderDevices() {
         <li>Escanea el código con la cámara o abre la dirección en <b>Safari</b>.</li>
         <li>Pulsa <b>Compartir</b> y luego <b>Añadir a pantalla de inicio</b>.</li>
         <li>Abre RadarNews desde su icono → <b>Ajustes › Notificaciones › Activar</b>.</li>
-      </ol>`;
+      </ol>${awakeNote()}`;
     return;
   }
   const steps = !ts.installed
@@ -620,7 +690,7 @@ async function renderDevices() {
       : `<li>Tailscale está activo en este Mac (${esc(ts.dns || '')}). Activa el acceso seguro a RadarNews ejecutando en Terminal:${cmd}</li>`;
   el.innerHTML = `<div class="card"><div class="card-row"><div><div class="card-title">Acceso desde iPhone y iPad</div><div class="muted">Aún no configurado</div></div><span class="pill">Pendiente</span></div></div>
     <h4>Cómo activarlo</h4><ol>${steps}<li>Cuando esté listo, aquí aparecerá un código QR para abrirlo en el iPhone o el iPad.</li></ol>
-    <div class="about-actions"><button class="btn" id="devices-retry">Comprobar de nuevo</button></div>`;
+    <div class="about-actions"><button class="btn" id="devices-retry">Comprobar de nuevo</button></div>${awakeNote()}`;
   $('#devices-retry').addEventListener('click', renderDevices);
 }
 
@@ -635,6 +705,7 @@ function setView(view) {
 
 function openSettings(tab = 'ai') {
   if (tab === 'devices') renderDevices();
+  if (tab === 'notif') renderDevicesList();
   for (const b of $$('#settings-tabs button')) b.classList.toggle('active', b.dataset.tab === tab);
   for (const p of $$('#settings .tab')) p.hidden = p.dataset.pane !== tab;
   const dlg = $('#settings');
@@ -806,6 +877,18 @@ function bind() {
   $('#gemini-remove').addEventListener('click', removeGemini);
   $('#notif-btn').addEventListener('click', enableNotifications);
   $('#notif-test').addEventListener('click', testNotification);
+  $('#device-list').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-remove-device]');
+    if (!b || !confirm('¿Dejar de enviar alertas a este dispositivo?')) return;
+    await api('/api/push/devices/remove', { method: 'POST', body: JSON.stringify({ id: b.dataset.removeDevice }) });
+    if (b.dataset.removeDevice === localStorage.getItem('rn-device-id')) {
+      await (await ui.swReg?.pushManager.getSubscription())?.unsubscribe();
+      ui.pushOn = false;
+      localStorage.removeItem('rn-push');
+    }
+    await load();
+    renderDevicesList();
+  });
   $('#spec-btn').addEventListener('click', openSpec);
 
   document.addEventListener('keydown', (e) => {
@@ -832,7 +915,7 @@ async function registerSw() {
 if (ui.view === 'alerts') ui.view = 'board';
 bind();
 setView(ui.view);
-registerSw().then(() => ui.data && renderNotif());
+registerSw().then(syncSubscription).then(() => (ui.pushOn ? load() : ui.data && renderNotif()));
 load();
 connectEvents();
 setInterval(renderSessions, 1000);
