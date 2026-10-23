@@ -64,16 +64,19 @@ cd radarnews && npm install && npm start      # http://localhost:3000
 ./macos/install-launchagent.sh                 # servicio launchd desde la copia clonada
 ```
 
-### Opcional: notificaciones con la app cerrada y en el iPhone
+### iPhone y iPad
 
-Las notificaciones push con la app cerrada, y en el iPhone, exigen HTTPS. La forma gratuita es [Tailscale](https://tailscale.com) (plan personal gratis):
+RadarNews se adapta a cada pantalla: tres columnas en el Mac y en el iPad horizontal, dos en el iPad vertical y, en el iPhone, una sección a la vez con barra inferior (Ranking, Cinta, Agenda, Alertas).
 
-```bash
-brew install tailscale
-tailscale serve --bg 4700   # publica https://<tu-mac>.<tu-red>.ts.net solo dentro de tu red Tailscale
-```
+Para abrirlo desde el iPhone o el iPad, con push, hace falta HTTPS entre tus dispositivos. La forma gratuita y privada es [Tailscale](https://tailscale.com) (plan personal gratis; solo tus dispositivos pueden entrar):
 
-Abre esa URL en Safari (Mac) o en el iPhone (con Tailscale instalado) → **Compartir → Añadir a pantalla de inicio** → abre la app → **⚙︎ Ajustes → Notificaciones → Activar**. **Enviar notificación de prueba** confirma que llegan.
+1. Instala Tailscale en el Mac (App Store) e inicia sesión.
+2. Vuelve a ejecutar el instalador de RadarNews: activa el acceso seguro solo (`tailscale serve --bg 4700`).
+3. En el Mac: **⚙︎ Ajustes → iPhone y iPad** muestra la dirección `https://…ts.net` y un código QR.
+4. En el iPhone o el iPad: instala Tailscale con la misma cuenta, escanea el QR, y en Safari pulsa **Compartir → Añadir a pantalla de inicio**.
+5. Abre RadarNews desde su icono → **⚙︎ Ajustes → Notificaciones → Activar** (iOS/iPadOS 16.4 o posterior).
+
+Al volver a la app desde segundo plano se pone al día sola.
 
 ### Alternativa: servidor gratuito en la nube
 

@@ -139,6 +139,14 @@ Estética institucional y sobria: grafito oscuro, Inter para texto y JetBrains M
 - **Ajustes**: Inteligencia artificial (pegar, probar y guardar la clave de Gemini; se guarda en `data/settings.json` con permisos 600 y se muestra enmascarada), Notificaciones (activar, probar, dispositivos suscritos), Fuentes (estado por fuente), Acerca de (especificación y atajos).
 - **Atajos**: R actualizar, A alertas, 1–5 filtros, `,` ajustes, Esc cerrar.
 
+### Dispositivos
+
+- **Mac** (≥ 1100 px): tres columnas; con poca altura (MacBook Air) el ranking se compacta para mostrar las 8 divisas.
+- **iPad**: horizontal, tres columnas; vertical, dos (Cinta | Ranking sobre Agenda). Objetivos táctiles más grandes y sin estados *hover* pegados.
+- **iPhone** (≤ 760 px, también iPad en Split View): una sección a la vez con barra inferior Ranking / Cinta / Agenda / Alertas (con badge), cabecera compacta, áreas seguras (notch e indicador de inicio), ajustes a pantalla completa y campos de 16 px para que iOS no haga zoom.
+- **Acceso remoto**: Tailscale Serve publica `https://<mac>.ts.net` solo dentro de la red privada del usuario; Ajustes › iPhone y iPad muestra la URL y un código QR, o los pasos que faltan. En iOS fuera de la pantalla de inicio se explica cómo instalarla para activar el push.
+- Al volver del segundo plano la app recarga el estado y reconecta el flujo en vivo.
+
 ### Instalación
 
 Un solo comando en Terminal (`macos/install.sh`): Node.js 22 portátil verificado por SHA-256 si falta, servicio launchd en `localhost:4700` que arranca al iniciar sesión, y `~/Applications/RadarNews.app` con icono. Reejecutarlo actualiza sin perder datos; `uninstall.sh` lo retira.
