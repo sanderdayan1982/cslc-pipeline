@@ -127,15 +127,21 @@ Reglas comunes (aplicadas también a la salida del modelo):
 
 ## 7. Interfaz (Terminal)
 
-Estética de terminal financiero: fondo oscuro, JetBrains Mono para datos, verde esmeralda para acción, rojo para negativo, ámbar para alertas. Pensada para pantalla de Mac.
+Estética institucional y sobria: grafito oscuro, Inter para texto y JetBrains Mono para cifras; verde y rojo solo para dirección, ámbar para breaking y el próximo dato. Icono propio estilo macOS (radar). Pensada para pantalla de Mac y adaptable a iPhone.
 
-- **Cabecera**: relojes de sesión (Sídney, Tokio, Londres, Nueva York, con abierta/cerrada), última y próxima sincronización, estado de los motores, ESPECIFICACIÓN, campana y ACTUALIZAR.
-- **Cinta** (columna principal): hora, BREAKING (impacto ≥ 4), fuente, categoría, titular, ACT/EST/PREV coloreado según sorpresa, evento de calendario enlazado, divisas, impacto. Filtros: Todas / Breaking / Datos / Bancos / Geo, y por divisa.
-- **Fuerza relativa**: pestañas Consenso / Gemini / Agente; ranking 1–8 con flecha de cambio de puesto, barra bipolar −100/+100 (marcas de cada motor en Consenso), score, mini-gráfico 24 h, sesgo y primer catalizador; detalle al pulsar. Nota de régimen.
-- **Diferencial narrativo**: matriz 8×8 (fila − columna) y los cuatro cruces con mayor diferencial.
-- **Calendario semanal**: agrupado por día, impacto por color, ACT/EST/PREV, próximo evento de alto impacto con cuenta atrás. Filtros Alto / Alto+Medio / Todos.
-- **Barra de estado**: salud de cada fuente y del calendario; atajos de teclado (R, A, 1–5, Esc).
-- **Centro de alertas**: badge, últimas 25, nivel por color, marcar todas leídas, activar notificaciones.
+- **Cabecera**: icono y nombre, relojes de sesión (Sídney, Tokio, Londres, Nueva York; abierta resaltada), estado "En vivo · hace X" (ámbar al sincronizar, rojo si falla), campana, actualizar y ⚙︎ Ajustes.
+- **Cinta** (columna principal): hora, titular, y debajo Breaking/Crítico, fuente, categoría, divisas, Act/Est/Prev coloreado según sorpresa y evento de agenda enlazado. Separadores por día. Filtros: Todo / Breaking / Datos / Bancos / Geo, y selector de divisa.
+- **Ranking de divisas**: Consenso / Gemini / Agente; puesto 1–8, barra bipolar −100/+100 (marcas de cada motor en Consenso), score y cambio de puesto; sesgo y primer catalizador. Al pulsar: catalizadores por motor y gráfico de 24 h. Nota de régimen y marca de divergencia.
+- **Cruces**: los cuatro cruces con mayor diferencial y la matriz 8×8 (fila − columna) plegable.
+- **Agenda de la semana**: tarjeta del próximo dato (alto o, si no queda, medio) con cuenta atrás; lista agrupada por día con impacto por color, Act/Est/Prev; se coloca sola en el próximo evento. Filtros Alto / Alto + Medio / Todo.
+- **Barra de estado**: "N/11 fuentes operativas · Agenda X eventos" (abre el detalle) y motores activos.
+- **Alertas**: badge (también en el icono del Dock), últimas 25, nivel por color, marcar todas leídas, invitación a activar push.
+- **Ajustes**: Inteligencia artificial (pegar, probar y guardar la clave de Gemini; se guarda en `data/settings.json` con permisos 600 y se muestra enmascarada), Notificaciones (activar, probar, dispositivos suscritos), Fuentes (estado por fuente), Acerca de (especificación y atajos).
+- **Atajos**: R actualizar, A alertas, 1–5 filtros, `,` ajustes, Esc cerrar.
+
+### Instalación
+
+Un solo comando en Terminal (`macos/install.sh`): Node.js 22 portátil verificado por SHA-256 si falta, servicio launchd en `localhost:4700` que arranca al iniciar sesión, y `~/Applications/RadarNews.app` con icono. Reejecutarlo actualiza sin perder datos; `uninstall.sh` lo retira.
 
 ## 8. Alertas — política estricta
 

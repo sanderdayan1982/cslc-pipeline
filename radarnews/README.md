@@ -2,54 +2,67 @@
 
 Terminal personal de noticias financieras para Mac. Agrega breaking, bancos centrales y análisis; clasifica la **fuerza narrativa** de USD, EUR, GBP, JPY, CHF, CAD, AUD y NZD (−100…+100) con dos motores (Agente por reglas + Gemini); sigue el **calendario económico de la semana** y avisa de lo importante por notificación. Nunca por email.
 
-La especificación completa está en [`SPEC.md`](SPEC.md) y dentro de la app (botón **ESPECIFICACIÓN**).
+La especificación completa está en [`SPEC.md`](SPEC.md) y dentro de la app (**⚙︎ Ajustes → Acerca de**).
 
 ## Qué incluye
 
-- **Cinta de breaking**: FinancialJuice, Fed, BCE, BoE, BoJ, BoC, RBA, InvestingLive y Financial Times. Filtros por tipo y por divisa; ACT/EST/PREV coloreado según sorpresa.
-- **Fuerza relativa**: pestañas Consenso / Gemini / Agente, flecha de cambio de puesto, mini-gráfico de 24 h, catalizadores y marca de **divergencia** cuando los motores discrepan.
-- **Diferencial narrativo**: matriz 8×8 y los cruces con mayor diferencial.
-- **Calendario semanal**: solo la semana en curso, próximo dato de alto impacto con cuenta atrás y el dato real enlazado cuando sale en la cinta.
+- **Cinta**: FinancialJuice, Fed, BCE, BoE, BoJ, BoC, RBA, InvestingLive y Financial Times. Filtros por tipo y por divisa; Act/Est/Prev coloreado según la sorpresa.
+- **Ranking de divisas**: Consenso / Gemini / Agente, cambio de puesto, catalizadores y gráfico de 24 h al pulsar una divisa, y aviso de **divergencia** cuando los motores discrepan. Debajo, los cruces con mayor diferencial y la matriz completa (plegable).
+- **Agenda de la semana**: solo la semana en curso, tarjeta del **próximo dato** con cuenta atrás y el dato real enlazado cuando sale en la cinta.
 - **Alertas**: datos de alto impacto 15 min antes, breaking, cambios de **ranking** y de **régimen** de cada motor. Una publicación de datos genera una sola alerta.
-- **Barra de estado**: salud de cada fuente; atajos `R` (actualizar), `A` (alertas), `1–5` (filtros).
+- **Ajustes** (icono ⚙︎): clave de Gemini, notificaciones, estado de cada fuente y la especificación. No hace falta editar archivos.
 
-## Instalación en el Mac
+## Instalación en el Mac (un solo comando)
 
-Requisitos: macOS Sonoma o posterior y Node.js 22.12 o superior (`brew install node`).
+Abre **Terminal** y pega:
 
 ```bash
-cd radarnews
-npm install
-cp .env.example .env     # pega aquí tu GEMINI_API_KEY
-npm start                # http://localhost:3000
+curl -fsSL https://raw.githubusercontent.com/sanderdayan1982/cslc-pipeline/cursor/radarnews-terminal-9d11/radarnews/macos/install.sh | RADARNEWS_BRANCH=cursor/radarnews-terminal-9d11 bash
 ```
 
-### Clave gratuita de Gemini
+Cuando esta rama se fusione en `main`, el comando queda en:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sanderdayan1982/cslc-pipeline/main/radarnews/macos/install.sh | bash
+```
+
+El instalador:
+
+1. Descarga Node.js 22 en una carpeta propia si tu Mac no lo tiene (verifica su firma SHA-256; no toca el sistema).
+2. Instala RadarNews en `~/Library/Application Support/RadarNews`.
+3. Lo deja como servicio en segundo plano: arranca al iniciar sesión, se reinicia si se cae y sincroniza aunque la ventana esté cerrada.
+4. Crea **`~/Applications/RadarNews.app`** con su icono y la abre. Arrástrala al Dock.
+
+La app abre el terminal en una ventana propia de Chrome si lo tienes; si no, en Safari (entonces usa **Archivo → Añadir al Dock** para tenerla como app). Dirección: `http://localhost:4700`.
+
+Para **actualizar**, vuelve a ejecutar el mismo comando: conserva titulares, alertas y la clave. Para **desinstalar**:
+
+```bash
+bash ~/Library/Application\ Support/RadarNews/uninstall.sh          # conserva tus datos
+bash ~/Library/Application\ Support/RadarNews/uninstall.sh --todo   # lo borra todo
+```
+
+Logs: `~/Library/Logs/RadarNews/radarnews.log`. El servidor es tu propio Mac: coste cero. Mientras el Mac está en reposo no sincroniza; al despertar se pone al día.
+
+### Activar Gemini (gratis)
 
 La suscripción Gemini Pro/Ultra **no** incluye la API. La clave es aparte y gratuita:
 
-1. Entra en <https://aistudio.google.com/apikey> con tu cuenta de Google.
-2. Pulsa **Create API key** y copia la clave.
-3. Pégala en `.env` como `GEMINI_API_KEY=...` y reinicia.
+1. Entra en <https://aistudio.google.com/apikey> con tu cuenta de Google y pulsa **Create API key**.
+2. En RadarNews: **⚙︎ Ajustes → Inteligencia artificial**, pega la clave y pulsa **Probar y guardar**.
 
-Sin clave, el terminal funciona igual con el Agente. Si Gemini falla o agota la cuota, el Agente sigue activo y la cabecera lo indica en rojo.
+La app comprueba la clave con Google antes de guardarla (en `data/settings.json`, permisos 600) y Gemini puntúa al momento. Sin clave, el terminal funciona igual con el Agente.
 
-### Que arranque solo al iniciar sesión
+### Notificaciones
+
+**⚙︎ Ajustes → Notificaciones → Activar**, y luego **Enviar notificación de prueba**. En **Ajustes del Sistema → Notificaciones** elige el estilo *Alertas* si quieres que se queden en pantalla, y si usas un modo de concentración (p. ej. Descanso) añade el navegador o la app de RadarNews a las permitidas.
+
+### Modo desarrollo
 
 ```bash
-./macos/install-launchagent.sh
+cd radarnews && npm install && npm start      # http://localhost:3000
+./macos/install-launchagent.sh                 # servicio launchd desde la copia clonada
 ```
-
-Lo deja como servicio de usuario (launchd): arranca al iniciar sesión y se reinicia si se cae. Logs en `~/Library/Logs/RadarNews/radarnews.log`. El servidor es tu propio Mac: coste cero. Mientras el Mac está en reposo no sincroniza; al despertar se pone al día.
-
-### Como app en el Dock
-
-1. Abre `http://localhost:3000` en **Safari**.
-2. Menú **Archivo → Añadir al Dock**.
-3. Abre RadarNews desde el Dock, pulsa la campana y luego **Activar notificaciones**.
-4. En **Ajustes del Sistema → Notificaciones → RadarNews**, elige el estilo *Alertas* si quieres que se queden en pantalla. Si usas un modo de concentración (p. ej. Descanso), añade RadarNews a las apps permitidas.
-
-Con la app del Dock abierta, aunque esté minimizada, cada alerta llega como notificación de macOS.
 
 ### Opcional: notificaciones con la app cerrada y en el iPhone
 
@@ -57,10 +70,10 @@ Las notificaciones push con la app cerrada, y en el iPhone, exigen HTTPS. La for
 
 ```bash
 brew install tailscale
-tailscale serve --bg 3000   # publica https://<tu-mac>.<tu-red>.ts.net solo dentro de tu red Tailscale
+tailscale serve --bg 4700   # publica https://<tu-mac>.<tu-red>.ts.net solo dentro de tu red Tailscale
 ```
 
-Abre esa URL en Safari (Mac) o en el iPhone (con Tailscale instalado) → **Compartir → Añadir a pantalla de inicio** → abre la app → campana → **Activar notificaciones**. El botón **Enviar prueba** confirma que llegan.
+Abre esa URL en Safari (Mac) o en el iPhone (con Tailscale instalado) → **Compartir → Añadir a pantalla de inicio** → abre la app → **⚙︎ Ajustes → Notificaciones → Activar**. **Enviar notificación de prueba** confirma que llegan.
 
 ### Alternativa: servidor gratuito en la nube
 
