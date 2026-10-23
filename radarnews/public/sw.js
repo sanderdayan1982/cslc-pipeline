@@ -8,13 +8,18 @@ self.addEventListener('push', (event) => {
   } catch {
     data = { title: 'RadarNews', body: event.data?.text() || '' };
   }
-  event.waitUntil(self.registration.showNotification(data.title || 'RadarNews', {
+  const tasks = [self.registration.showNotification(data.title || 'RadarNews', {
     body: data.body || '',
     tag: data.tag,
     icon: '/icon-512.png',
     badge: '/icon-512.png',
     data: { url: data.url || '/' },
-  }));
+  })];
+  // Unread count on the home-screen / Dock icon (iOS 16.4+, macOS).
+  if (typeof data.badge === 'number' && self.navigator.setAppBadge) {
+    tasks.push((data.badge ? self.navigator.setAppBadge(data.badge) : self.navigator.clearAppBadge()).catch(() => {}));
+  }
+  event.waitUntil(Promise.all(tasks));
 });
 
 self.addEventListener('notificationclick', (event) => {

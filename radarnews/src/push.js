@@ -21,37 +21,45 @@ export function initPush(keyPath) {
   return keys.publicKey;
 }
 
-export function payloadFor(alert) {
+export function payloadFor(alert, badge = null) {
   return {
     title: `${LEVEL_PREFIX[alert.level] ?? ''}${alert.title}`.slice(0, 120),
     body: (alert.body || '').slice(0, 240),
     tag: `rn-${alert.id ?? Date.now()}`,
     url: '/',
+    badge,
   };
 }
 
+// Every subscribed device (each iPhone, iPad and Mac) receives every alert; devices are sent to in parallel.
 export async function sendPush(db, alerts) {
   const subs = db.listPushSubscriptions();
   if (!subs.length || !alerts.length) return 0;
-  const ordered = [...alerts].sort((a, b) => ({ critico: 0, alto: 1, medio: 2 }[a.level] - { critico: 0, alto: 1, medio: 2 }[b.level]));
-  const payloads = ordered.slice(0, MAX_PUSH_PER_CYCLE).map(payloadFor);
+  const badge = db.unreadCount();
+  const rank = { critico: 0, alto: 1, medio: 2 };
+  const ordered = [...alerts].sort((a, b) => (rank[a.level] ?? 3) - (rank[b.level] ?? 3));
+  const payloads = ordered.slice(0, MAX_PUSH_PER_CYCLE).map((a) => payloadFor(a, badge));
   if (ordered.length > MAX_PUSH_PER_CYCLE) {
-    payloads.push({ title: `RadarNews · ${ordered.length - MAX_PUSH_PER_CYCLE} alertas más`, body: 'Abre el centro de alertas para ver el resto.', tag: 'rn-summary', url: '/' });
+    payloads.push({ title: `RadarNews · ${ordered.length - MAX_PUSH_PER_CYCLE} alertas más`, body: 'Abre el centro de alertas para ver el resto.', tag: 'rn-summary', url: '/', badge });
   }
-  let sent = 0;
-  for (const sub of subs) {
+  const perDevice = await Promise.all(subs.map(async (sub) => {
+    let sent = 0;
     for (const p of payloads) {
       try {
-        await webpush.sendNotification(sub, JSON.stringify(p), { TTL: 3600, urgency: 'high' });
+        await webpush.sendNotification(sub, JSON.stringify(p), { TTL: 6 * 3600, urgency: 'high' });
         sent += 1;
       } catch (err) {
         if (err.statusCode === 404 || err.statusCode === 410) {
           db.deletePushSubscription(sub.endpoint);
-          break;
+          return sent;
         }
+        db.markPushResult(sub.endpoint, `${err.statusCode || ''} ${err.body || err.message}`.trim());
         console.warn(`[push] ${err.statusCode || ''} ${err.message}`);
+        return sent;
       }
     }
-  }
-  return sent;
+    db.markPushResult(sub.endpoint, null);
+    return sent;
+  }));
+  return perDevice.reduce((a, b) => a + b, 0);
 }

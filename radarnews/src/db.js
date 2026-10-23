@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -78,11 +79,18 @@ const parseNews = (r) => r && { ...r, currencies: JSON.parse(r.currencies), aler
 const parseScore = (r) => r && { ...r, drivers: JSON.parse(r.drivers) };
 const parseAlert = (r) => r && { ...r, is_read: !!r.is_read };
 
+// Opaque id so the UI can manage devices without ever seeing push endpoints.
+export const deviceId = (endpoint) => createHash('sha1').update(endpoint).digest('hex').slice(0, 12);
+
 export function openDb(path = process.env.RADARNEWS_DB || 'data/radarnews.db') {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
+  const pushCols = new Set(db.prepare('PRAGMA table_info(push_subscriptions)').all().map((c) => c.name));
+  for (const [col, type] of [['label', 'TEXT'], ['last_ok_at', 'TEXT'], ['last_error', 'TEXT'], ['last_error_at', 'TEXT']]) {
+    if (!pushCols.has(col)) db.exec(`ALTER TABLE push_subscriptions ADD COLUMN ${col} ${type}`);
+  }
 
   const stmts = {
     hasFp: db.prepare('SELECT 1 FROM news_items WHERE fingerprint = ?'),
@@ -204,10 +212,20 @@ export function openDb(path = process.env.RADARNEWS_DB || 'data/radarnews.db') {
       WHERE currency = ? AND event_at BETWEEN ? AND ? AND actual IS NULL`).all(currency, fromIso, toIso),
     setCalendarActual: (id, actual, newsId) => db.prepare('UPDATE calendar_events SET actual = ?, news_item_id = ? WHERE id = ?').run(actual, newsId, id),
 
-    savePushSubscription: (sub) => db.prepare(`INSERT INTO push_subscriptions (endpoint, subscription) VALUES (?, ?)
-      ON CONFLICT(endpoint) DO UPDATE SET subscription = excluded.subscription`).run(sub.endpoint, JSON.stringify(sub)),
+    savePushSubscription: (sub, label = null) => db.prepare(`INSERT INTO push_subscriptions (endpoint, subscription, label) VALUES (?, ?, ?)
+      ON CONFLICT(endpoint) DO UPDATE SET subscription = excluded.subscription, label = COALESCE(excluded.label, label)`).run(sub.endpoint, JSON.stringify(sub), label),
     deletePushSubscription: (endpoint) => db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint),
     listPushSubscriptions: () => db.prepare('SELECT subscription FROM push_subscriptions').all().map((r) => JSON.parse(r.subscription)),
+    listPushDevices: () => db.prepare('SELECT endpoint, label, created_at, last_ok_at, last_error, last_error_at FROM push_subscriptions ORDER BY created_at').all()
+      .map((r) => ({ ...r, id: deviceId(r.endpoint), endpoint: undefined })),
+    deletePushDevice(id) {
+      const row = db.prepare('SELECT endpoint FROM push_subscriptions').all().find((r) => deviceId(r.endpoint) === id);
+      if (row) db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(row.endpoint);
+      return !!row;
+    },
+    markPushResult: (endpoint, error) => (error
+      ? db.prepare(`UPDATE push_subscriptions SET last_error = ?, last_error_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE endpoint = ?`).run(String(error).slice(0, 200), endpoint)
+      : db.prepare(`UPDATE push_subscriptions SET last_ok_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), last_error = NULL WHERE endpoint = ?`).run(endpoint)),
 
     setMeta: (k, v) => stmts.setMeta.run(k, JSON.stringify(v)),
     getMeta(k) {

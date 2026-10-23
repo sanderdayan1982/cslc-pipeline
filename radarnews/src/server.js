@@ -2,7 +2,8 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openDb } from './db.js';
+import { openDb, deviceId } from './db.js';
+import { spawn } from 'node:child_process';
 import { refreshFeed } from './refreshFeed.js';
 import { classifyCurrencies, ENGINE_LABEL } from './classifyCurrencies.js';
 import { refreshCalendar, prealertsDue } from './calendar.js';
@@ -115,6 +116,8 @@ function state() {
     calendar_sync: db.getMeta('calendar_sync'),
     settings: publicSettings(),
     push_devices: db.listPushSubscriptions().length,
+    keep_awake: awake,
+    platform: process.platform,
     alerts: db.listAlerts(25),
     unread: db.unreadCount(),
   };
@@ -159,14 +162,23 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/alerts/read-all') return json(res, 200, { updated: db.markAllRead() });
     if (req.method === 'GET' && pathname === '/api/push/key') return json(res, 200, { publicKey: vapidPublicKey });
     if (req.method === 'POST' && pathname === '/api/push/subscribe') {
-      const sub = await readBody(req);
+      const body = await readBody(req);
+      const sub = body?.subscription ?? body;
       if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) return json(res, 400, { error: 'suscripción inválida' });
-      db.savePushSubscription(sub);
-      return json(res, 200, { ok: true });
+      if (!/^https:\/\//.test(sub.endpoint)) return json(res, 400, { error: 'endpoint no válido' });
+      const label = typeof body.label === 'string' ? body.label.slice(0, 60) : null;
+      db.savePushSubscription(sub, label);
+      return json(res, 200, { ok: true, id: deviceId(sub.endpoint) });
+    }
+    if (req.method === 'GET' && pathname === '/api/push/devices') return json(res, 200, { devices: db.listPushDevices() });
+    if (req.method === 'POST' && pathname === '/api/push/devices/remove') {
+      const { id } = await readBody(req);
+      return json(res, 200, { removed: db.deletePushDevice(String(id || '')) });
     }
     if (req.method === 'POST' && pathname === '/api/push/test') {
-      const sent = await sendPush(db, [{ id: Date.now(), level: 'alto', title: 'Prueba de RadarNews', body: 'Las notificaciones funcionan en este dispositivo.' }]);
-      return json(res, 200, { sent });
+      const devices = db.listPushDevices().length;
+      const sent = await sendPush(db, [{ id: Date.now(), level: 'alto', title: 'Prueba de RadarNews', body: 'Si ves esto, las alertas llegan a este dispositivo.' }]);
+      return json(res, 200, { sent, devices, list: db.listPushDevices() });
     }
     if (req.method === 'GET' && pathname === '/api/devices') {
       const proto = req.headers['x-forwarded-proto'] || (req.socket.encrypted ? 'https' : 'http');
@@ -213,6 +225,20 @@ const server = createServer(async (req, res) => {
     json(res, 500, { error: err.message });
   }
 });
+
+// The Mac is the server: if it idles into sleep, iPhones stop receiving alerts.
+// caffeinate -w ties the assertion to this process, so it ends when RadarNews stops.
+function keepAwake() {
+  if (process.platform !== 'darwin' || process.env.RADARNEWS_KEEP_AWAKE === '0') return false;
+  try {
+    spawn('/usr/bin/caffeinate', ['-i', '-s', '-w', String(process.pid)], { stdio: 'ignore', detached: true }).unref();
+    return true;
+  } catch (err) {
+    console.warn(`[reposo] ${err.message}`);
+    return false;
+  }
+}
+const awake = keepAwake();
 
 server.listen(PORT, HOST, async () => {
   const llm = llmProvider();
