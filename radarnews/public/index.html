@@ -61,7 +61,7 @@
   <div id="error-band" class="error-band" hidden></div>
 
   <main class="layout">
-    <section class="panel tape">
+    <section class="panel tape" data-view="tape">
       <div class="panel-head">
         <h2>Cinta</h2>
         <div class="seg" id="filters" role="tablist">
@@ -78,7 +78,7 @@
       </div>
     </section>
 
-    <section class="panel board">
+    <section class="panel board" data-view="board">
       <div class="panel-head">
         <h2>Ranking de divisas</h2>
         <div class="seg" id="engine-tabs"></div>
@@ -100,7 +100,7 @@
       </details>
     </section>
 
-    <section class="panel agenda">
+    <section class="panel agenda" data-view="agenda">
       <div class="panel-head">
         <h2>Agenda de la semana</h2>
         <div class="seg" id="cal-filter">
@@ -113,6 +113,13 @@
       <div id="calendar" class="calendar-body"></div>
     </section>
   </main>
+
+  <nav class="tabbar" id="tabbar" aria-label="Secciones">
+    <button data-view="board"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h10M4 12h16M4 18h7"/></svg><span>Ranking</span></button>
+    <button data-view="tape"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg><span>Cinta</span></button>
+    <button data-view="agenda"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span>Agenda</span></button>
+    <button data-view="alerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span>Alertas</span><i id="tab-badge" class="badge" hidden>0</i></button>
+  </nav>
 
   <footer class="statusbar">
     <button id="health" class="health" data-open-settings="sources" title="Ver estado de las fuentes"></button>
@@ -133,6 +140,7 @@
       <nav class="tabs" id="settings-tabs">
         <button data-tab="ai" class="active">Inteligencia artificial</button>
         <button data-tab="notif">Notificaciones</button>
+        <button data-tab="devices">iPhone y iPad</button>
         <button data-tab="sources">Fuentes</button>
         <button data-tab="about">Acerca de</button>
       </nav>
@@ -164,6 +172,9 @@
       <section class="tab" data-pane="notif" hidden>
         <h3>Notificaciones</h3>
         <p class="muted">Solo en la app y push. Nunca por correo.</p>
+        <div id="ios-install" class="hint ios" hidden>
+          <span>En iPhone y iPad las notificaciones exigen abrir RadarNews desde la pantalla de inicio: pulsa <b>Compartir</b> <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v8h14v-8"/></svg> y luego <b>Añadir a pantalla de inicio</b>.</span>
+        </div>
         <div class="card">
           <div class="card-row">
             <div>
@@ -185,6 +196,12 @@
           <li><b>Cambio de ranking</b> detectado por el Agente o por Gemini</li>
           <li><b>Cambio de régimen</b> de una divisa (alcista, neutral, bajista)</li>
         </ul>
+      </section>
+
+      <section class="tab" data-pane="devices" hidden>
+        <h3>iPhone y iPad</h3>
+        <p class="muted">RadarNews corre en tu Mac. Para abrirlo en el iPhone o el iPad, con notificaciones push, hace falta una conexión segura (HTTPS) entre tus dispositivos. La forma gratuita y privada es Tailscale: solo tus dispositivos pueden entrar.</p>
+        <div id="devices-body" class="devices"><span class="spinner"></span></div>
       </section>
 
       <section class="tab" data-pane="sources" hidden>

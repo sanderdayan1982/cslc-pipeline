@@ -32,7 +32,13 @@ const ui = {
   pushOn: localStorage.getItem('rn-push') === '1',
   swReg: null,
   syncing: false,
+  view: localStorage.getItem('rn-view') || 'board',
+  es: null,
 };
+
+const IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IS_STANDALONE = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const phone = window.matchMedia('(max-width: 760px)');
 
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 const fmtDay = (iso) => { const t = new Date(iso).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }); return t[0].toUpperCase() + t.slice(1); };
@@ -399,6 +405,8 @@ function renderAlerts() {
   const badge = $('#badge');
   badge.hidden = d.unread === 0;
   badge.textContent = d.unread > 99 ? '99+' : d.unread;
+  $('#tab-badge').hidden = d.unread === 0;
+  $('#tab-badge').textContent = badge.textContent;
   document.title = d.unread ? `(${d.unread}) RadarNews` : 'RadarNews';
   navigator.setAppBadge?.(d.unread || undefined)?.catch?.(() => {});
   $('#alerts-list').innerHTML = d.alerts.length
@@ -411,6 +419,7 @@ function renderAlerts() {
 }
 
 function notifState() {
+  if (IS_IOS && !IS_STANDALONE) return 'ios-browser';
   if (!('Notification' in window)) return 'unsupported';
   if (Notification.permission === 'granted') return ui.pushOn ? 'push' : 'local';
   return Notification.permission;
@@ -421,19 +430,21 @@ function renderNotif() {
   const btn = $('#notif-btn');
   const text = {
     unsupported: 'Este navegador no admite notificaciones. En Mac usa Safari (Añadir al Dock) o Chrome.',
+    'ios-browser': 'Abre RadarNews desde la pantalla de inicio para activarlas.',
     push: 'Push activo: recibirás alertas aunque la app esté cerrada.',
     local: 'Activas mientras la app esté abierta. Pulsa para activar push.',
     denied: 'Bloqueadas. Actívalas en Ajustes del Sistema › Notificaciones.',
     default: 'Desactivadas.',
   }[st];
   $('#notif-state').textContent = text;
-  btn.disabled = st === 'unsupported' || st === 'denied' || st === 'push';
+  btn.disabled = ['unsupported', 'ios-browser', 'denied', 'push'].includes(st);
+  $('#ios-install').hidden = st !== 'ios-browser';
   btn.textContent = st === 'push' ? 'Activas' : 'Activar';
   btn.classList.toggle('on', st === 'push');
   $('#notif-test').hidden = st !== 'push' && st !== 'local';
   const n = ui.data?.push_devices ?? 0;
   $('#push-devices').textContent = `${n} ${n === 1 ? 'dispositivo suscrito' : 'dispositivos suscritos'}`;
-  $('#notif-hint').hidden = st === 'push' || st === 'unsupported' || st === 'denied';
+  $('#notif-hint').hidden = ['push', 'unsupported', 'denied', 'ios-browser'].includes(st);
 }
 
 function toast(a) {
@@ -571,7 +582,59 @@ async function removeGemini() {
   await load();
 }
 
+async function renderDevices() {
+  const el = $('#devices-body');
+  let d;
+  try {
+    d = await api('/api/devices');
+  } catch (err) {
+    el.innerHTML = `<p class="form-msg err">${esc(err.message)}</p>`;
+    return;
+  }
+  const ts = d.tailscale;
+  const cmd = `<code class="cmd">${esc(d.command)}</code>`;
+  if (d.secure) {
+    const here = location.origin === d.url;
+    el.innerHTML = `<div class="card"><div class="qr-wrap">
+        <div class="qr">${d.qr}</div>
+        <div>
+          <div class="card-title">Acceso seguro activo</div>
+          <div class="url">${esc(d.url)}</div>
+          ${here ? '<p class="form-msg ok">Estás usando esta conexión ahora mismo.</p>' : ''}
+        </div>
+      </div></div>
+      <h4>En el iPhone o el iPad</h4>
+      <ol>
+        <li>Instala <b>Tailscale</b> desde el App Store e inicia sesión con la misma cuenta que en el Mac.</li>
+        <li>Escanea el código con la cámara o abre la dirección en <b>Safari</b>.</li>
+        <li>Pulsa <b>Compartir</b> y luego <b>Añadir a pantalla de inicio</b>.</li>
+        <li>Abre RadarNews desde su icono → <b>Ajustes › Notificaciones › Activar</b>.</li>
+      </ol>`;
+    return;
+  }
+  const steps = !ts.installed
+    ? `<li>Instala <b>Tailscale</b> en el Mac (App Store o <a href="https://tailscale.com/download" target="_blank" rel="noopener">tailscale.com/download</a>) e inicia sesión. El plan personal es gratuito.</li>
+       <li>Vuelve a ejecutar el instalador de RadarNews: activa el acceso seguro automáticamente. O ejecuta en Terminal:${cmd}</li>`
+    : !ts.running
+      ? '<li>Abre <b>Tailscale</b> en el Mac e inicia sesión.</li><li>Vuelve a esta pantalla.</li>'
+      : `<li>Tailscale está activo en este Mac (${esc(ts.dns || '')}). Activa el acceso seguro a RadarNews ejecutando en Terminal:${cmd}</li>`;
+  el.innerHTML = `<div class="card"><div class="card-row"><div><div class="card-title">Acceso desde iPhone y iPad</div><div class="muted">Aún no configurado</div></div><span class="pill">Pendiente</span></div></div>
+    <h4>Cómo activarlo</h4><ol>${steps}<li>Cuando esté listo, aquí aparecerá un código QR para abrirlo en el iPhone o el iPad.</li></ol>
+    <div class="about-actions"><button class="btn" id="devices-retry">Comprobar de nuevo</button></div>`;
+  $('#devices-retry').addEventListener('click', renderDevices);
+}
+
+function setView(view) {
+  ui.view = view;
+  document.body.dataset.view = view;
+  if (view !== 'alerts') localStorage.setItem('rn-view', view);
+  for (const b of $$('#tabbar button')) b.classList.toggle('active', b.dataset.view === view);
+  const panel = $('#alerts-panel');
+  if (phone.matches) panel.hidden = view !== 'alerts';
+}
+
 function openSettings(tab = 'ai') {
+  if (tab === 'devices') renderDevices();
   for (const b of $$('#settings-tabs button')) b.classList.toggle('active', b.dataset.tab === tab);
   for (const p of $$('#settings .tab')) p.hidden = p.dataset.pane !== tab;
   const dlg = $('#settings');
@@ -659,7 +722,9 @@ async function refresh() {
 }
 
 function connectEvents() {
+  ui.es?.close();
   const es = new EventSource('/api/events');
+  ui.es = es;
   es.addEventListener('sync_start', () => setSyncing(true));
   es.addEventListener('sync_done', () => load());
   es.addEventListener('alerts', (ev) => {
@@ -710,7 +775,19 @@ function bind() {
     $('#bell').setAttribute('aria-expanded', String(!panel.hidden));
   };
   $('#bell').addEventListener('click', (e) => { e.stopPropagation(); togglePanel(); });
-  document.addEventListener('click', (e) => { if (!panel.hidden && !e.target.closest('.bell-wrap')) togglePanel(false); });
+  document.addEventListener('click', (e) => { if (!phone.matches && !panel.hidden && !e.target.closest('.bell-wrap')) togglePanel(false); });
+  $('#tabbar').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-view]');
+    if (b) setView(b.dataset.view);
+  });
+  phone.addEventListener('change', () => { panel.hidden = !(phone.matches && ui.view === 'alerts'); });
+  // iOS suspends background tabs and drops the event stream; catch up when the app returns.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (!ui.es || ui.es.readyState === EventSource.CLOSED) connectEvents();
+    load();
+  });
+  window.addEventListener('pageshow', (e) => { if (e.persisted) { connectEvents(); load(); } });
   $('#read-all').addEventListener('click', async () => { await api('/api/alerts/read-all', { method: 'POST' }); load(); });
   $('#notif-hint-btn').addEventListener('click', enableNotifications);
 
@@ -752,7 +829,9 @@ async function registerSw() {
   }
 }
 
+if (ui.view === 'alerts') ui.view = 'board';
 bind();
+setView(ui.view);
 registerSw().then(() => ui.data && renderNotif());
 load();
 connectEvents();
