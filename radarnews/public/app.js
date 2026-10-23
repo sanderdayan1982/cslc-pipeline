@@ -113,7 +113,7 @@ function renderStatus() {
   const stale = last && Date.now() - Date.parse(last) > 15 * 60_000 && !d.syncing;
   band.hidden = !d.error && !stale;
   band.textContent = d.error ? `Error de sincronización: ${d.error}`
-    : stale ? `Sin sincronizar desde ${fmtTime(last)}. ¿Está el Mac en reposo o apagado? Las alertas se reanudan al despertarlo.` : '';
+    : stale ? `Sin sincronizar desde ${fmtTime(last)}. ${d.platform === 'darwin' ? '¿Está el Mac en reposo o apagado? Las alertas se reanudan al despertarlo.' : 'El servidor no responde a las fuentes; se reintenta solo.'}` : '';
   setSyncing(d.syncing);
 }
 
@@ -919,5 +919,5 @@ registerSw().then(syncSubscription).then(() => (ui.pushOn ? load() : ui.data && 
 load();
 connectEvents();
 setInterval(renderSessions, 1000);
-setInterval(load, 60_000);
+setInterval(() => { if (document.visibilityState === "visible") load(); }, 5 * 60_000);
 renderSessions();

@@ -1,5 +1,7 @@
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
+import { gzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import { extname, join, normalize, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb, deviceId } from './db.js';
@@ -110,7 +112,7 @@ function state() {
     error: lastError,
     llm: { provider: llmProvider(), label: ENGINE_LABEL[llmProvider()] ?? null, status: db.getMeta('llm_status') },
     sources: SOURCES.map((s) => ({ id: s.id, name: s.label || s.name, type: s.type })),
-    news: db.listNews({ limit: 400 }),
+    news: db.listNews({ limit: 250 }),
     engines: scoresByEngine(),
     calendar: db.listCalendar(),
     calendar_sync: db.getMeta('calendar_sync'),
@@ -123,9 +125,19 @@ function state() {
   };
 }
 
+// Compressed responses keep a cloud VM well inside free-tier egress (≈5× smaller).
+function send(req, res, status, headers, body) {
+  const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
+  if (buf.length > 1024 && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
+    res.writeHead(status, { ...headers, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' });
+    return res.end(gzipSync(buf));
+  }
+  res.writeHead(status, headers);
+  res.end(buf);
+}
+
 function json(res, status, body) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify(body));
+  send(res.req, res, status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, JSON.stringify(body));
 }
 
 async function readBody(req) {
@@ -137,15 +149,25 @@ async function readBody(req) {
   return data ? JSON.parse(data) : {};
 }
 
-async function serveStatic(res, pathname) {
+const etags = new Map();
+
+async function serveStatic(req, res, pathname) {
   const file = normalize(join(PUBLIC, pathname === '/' ? 'index.html' : pathname));
   if (!file.startsWith(PUBLIC)) return json(res, 403, { error: 'prohibido' });
   try {
-    const body = await readFile(file);
-    const headers = { 'Content-Type': MIME[extname(file)] || 'application/octet-stream' };
-    if (pathname === '/sw.js') headers['Cache-Control'] = 'no-cache';
-    res.writeHead(200, headers);
-    res.end(body);
+    const { mtimeMs } = await stat(file);
+    let entry = etags.get(file);
+    if (!entry || entry.mtimeMs !== mtimeMs) {
+      const body = await readFile(file);
+      entry = { mtimeMs, body, etag: `"${createHash('sha1').update(body).digest('hex').slice(0, 16)}"` };
+      etags.set(file, entry);
+    }
+    const headers = { 'Content-Type': MIME[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache', ETag: entry.etag };
+    if (req.headers['if-none-match'] === entry.etag) {
+      res.writeHead(304, headers);
+      return res.end();
+    }
+    send(req, res, 200, headers, entry.body);
   } catch {
     json(res, 404, { error: 'no encontrado' });
   }
@@ -219,7 +241,7 @@ const server = createServer(async (req, res) => {
       req.on('close', () => { clearInterval(ping); clients.delete(res); });
       return;
     }
-    if (req.method === 'GET') return serveStatic(res, pathname);
+    if (req.method === 'GET') return serveStatic(req, res, pathname);
     json(res, 405, { error: 'método no permitido' });
   } catch (err) {
     json(res, 500, { error: err.message });
