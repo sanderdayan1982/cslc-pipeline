@@ -147,6 +147,12 @@ Estética institucional y sobria: grafito oscuro, Inter para texto y JetBrains M
 - **Acceso remoto**: Tailscale Serve publica `https://<mac>.ts.net` solo dentro de la red privada del usuario; Ajustes › iPhone y iPad muestra la URL y un código QR, o los pasos que faltan. En iOS fuera de la pantalla de inicio se explica cómo instalarla para activar el push.
 - Al volver del segundo plano la app recarga el estado y reconecta el flujo en vivo.
 
+### Despliegue
+
+- **Recomendado: servidor en la nube 24/7** (`cloud/install.sh`, Debian/Ubuntu; p. ej. Google Cloud `e2-micro` Free Tier): servicio systemd con usuario propio y sistema de archivos protegido, datos en `/var/lib/radarnews`, Tailscale Serve para HTTPS privado. Los iPhone, el iPad y el Mac son clientes independientes: ninguno depende de otro para recibir alertas.
+- Mac en modo cliente: `RADARNEWS_URL=https://… macos/install.sh` crea `RadarNews.app` apuntando al servidor y retira el servidor local.
+- Respuestas gzip, ETag en estáticos y refresco cada 5 min solo con la app visible, para caber en 1 GB/mes de salida.
+
 ### Instalación
 
 Un solo comando en Terminal (`macos/install.sh`): Node.js 22 portátil verificado por SHA-256 si falta, servicio launchd en `localhost:4700` que arranca al iniciar sesión, y `~/Applications/RadarNews.app` con icono. Reejecutarlo actualiza sin perder datos; `uninstall.sh` lo retira.

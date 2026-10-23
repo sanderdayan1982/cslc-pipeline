@@ -12,7 +12,46 @@ La especificación completa está en [`SPEC.md`](SPEC.md) y dentro de la app (**
 - **Alertas**: datos de alto impacto 15 min antes, breaking, cambios de **ranking** y de **régimen** de cada motor. Una publicación de datos genera una sola alerta.
 - **Ajustes** (icono ⚙︎): clave de Gemini, notificaciones, estado de cada fuente y la especificación. No hace falta editar archivos.
 
-## Instalación en el Mac (un solo comando)
+## Recomendado: servidor en la nube 24/7 (independencia total)
+
+Con el servidor en la nube, **ningún dispositivo depende de otro**: los iPhone, el iPad y el Mac reciben las alertas aunque los demás estén apagados, y el Mac puede dormir o cerrarse. Se usa una máquina gratuita de Google Cloud (capa *Free Tier*, gratis de forma permanente).
+
+1. **Crear la máquina** (una sola vez):
+   - Entra en <https://console.cloud.google.com> con tu cuenta de Google y activa la facturación (Google pide una tarjeta para verificar la identidad; la máquina `e2-micro` en las regiones indicadas no se cobra).
+   - **Compute Engine → Instancias de VM → Crear instancia**:
+     - Nombre: `radarnews`.
+     - Región: `us-central1`, `us-west1` o `us-east1` (solo estas tres son gratuitas).
+     - Tipo de máquina: `e2-micro`.
+     - Disco de arranque: Debian 12, **disco persistente estándar**, 30 GB.
+   - Pulsa **Crear**.
+2. **Instalar RadarNews**: en la lista de instancias pulsa **SSH** (se abre una terminal en el navegador) y pega:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sanderdayan1982/cslc-pipeline/cursor/radarnews-terminal-9d11/radarnews/cloud/install.sh | RADARNEWS_BRANCH=cursor/radarnews-terminal-9d11 bash
+```
+
+   Abre el enlace de Tailscale que aparece e inicia sesión con tu cuenta (la misma que usarás en el iPhone). Al terminar muestra la dirección, del tipo `https://radarnews.tu-red.ts.net`.
+3. **En cada iPhone y iPad**: instala Tailscale (App Store) con la misma cuenta, abre esa dirección en Safari → **Compartir → Añadir a pantalla de inicio** → abre RadarNews desde el icono → **⚙︎ Ajustes → Notificaciones → Activar**.
+4. **En el Mac**: Tailscale con la misma cuenta y, en Terminal, el comando que imprime el instalador (crea `RadarNews.app` apuntando a la nube y apaga el servidor local si lo había):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sanderdayan1982/cslc-pipeline/cursor/radarnews-terminal-9d11/radarnews/macos/install.sh | RADARNEWS_URL=https://radarnews.tu-red.ts.net RADARNEWS_BRANCH=cursor/radarnews-terminal-9d11 bash
+```
+
+5. Pega la clave de Gemini en **⚙︎ Ajustes → Inteligencia artificial** (desde cualquier dispositivo; se guarda en el servidor).
+
+Notas:
+
+- Las notificaciones push llegan a través de Apple aunque Tailscale esté desconectado en el iPhone; Tailscale solo hace falta para **abrir** la app.
+- La app comprime sus respuestas para quedar holgadamente dentro del tráfico gratuito de Google (1 GB/mes de salida).
+- Para actualizar, vuelve a pulsar **SSH** y pega el mismo comando. Logs: `sudo journalctl -u radarnews -f`.
+- Alternativa también gratuita y con más margen: la capa *Always Free* de Oracle Cloud (mismo comando en una VM Ubuntu).
+
+## Instalación solo en el Mac (sin nube)
+
+Si prefieres no usar la nube, el Mac hace de servidor. En ese caso los iPhone solo reciben alertas mientras el Mac está encendido y despierto.
+
+
 
 Abre **Terminal** y pega:
 
@@ -86,7 +125,7 @@ Al volver a la app desde segundo plano se pone al día sola.
 - Cada vez que abres la app en un dispositivo renueva su suscripción, por si iOS la ha invalidado.
 - **El Mac es el servidor**: mientras RadarNews funciona, impide que el Mac entre en reposo por inactividad (la pantalla sí se apaga). Si es un portátil, déjalo enchufado y con la tapa abierta (o cerrado con pantalla externa): con la tapa cerrada macOS lo duerme y las alertas se pausan hasta que despierte. Si pasa, el iPhone muestra "Sin datos desde…".
 
-### Alternativa: servidor gratuito en la nube
+### Docker (cualquier servidor)
 
 Para que funcione con el Mac apagado, el `Dockerfile` sirve para cualquier máquina gratuita (p. ej. la capa *Always Free* de Oracle Cloud):
 
