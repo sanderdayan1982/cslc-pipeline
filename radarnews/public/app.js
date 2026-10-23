@@ -1,18 +1,21 @@
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD', 'NZD'];
+const BANK = { USD: 'Fed', EUR: 'BCE', GBP: 'BoE', JPY: 'BoJ', CHF: 'SNB', CAD: 'BoC', AUD: 'RBA', NZD: 'RBNZ' };
 // Market quoting convention: the higher-priority currency is the base of the pair.
 const PAIR_PRIORITY = ['EUR', 'GBP', 'AUD', 'NZD', 'USD', 'CAD', 'CHF', 'JPY'];
-const CATEGORY_LABEL = { dato_macro: 'Dato', banco_central: 'Banco central', geopolitica: 'Geo', mercado: 'Mercado', analisis: 'Análisis', otro: 'Otro' };
+const CATEGORY_LABEL = { dato_macro: 'Dato', banco_central: 'Banco central', geopolitica: 'Geopolítica', mercado: 'Mercado', analisis: 'Análisis', otro: 'General' };
 const LEVEL_LABEL = { critico: 'Crítico', alto: 'Alto', medio: 'Medio' };
-const TYPE_LABEL = { breaking: 'Breaking', dato_macro: 'Dato macro', cambio_regimen: 'Cambio de régimen', cambio_ranking: 'Cambio de ranking', calendario: 'Calendario', titular: 'Titular' };
+const TYPE_LABEL = { breaking: 'Breaking', dato_macro: 'Dato macro', cambio_regimen: 'Cambio de régimen', cambio_ranking: 'Cambio de ranking', calendario: 'Agenda', titular: 'Titular' };
+const SOURCE_TYPE = { breaking: 'Breaking', oficial: 'Oficial', agencia: 'Agencia' };
 const SESSIONS = [
-  { city: 'SÍDNEY', tz: 'Australia/Sydney', open: 7, close: 16 },
-  { city: 'TOKIO', tz: 'Asia/Tokyo', open: 9, close: 18 },
-  { city: 'LONDRES', tz: 'Europe/London', open: 8, close: 17 },
-  { city: 'NUEVA YORK', tz: 'America/New_York', open: 8, close: 17 },
+  { city: 'Sídney', tz: 'Australia/Sydney', open: 7, close: 16 },
+  { city: 'Tokio', tz: 'Asia/Tokyo', open: 9, close: 18 },
+  { city: 'Londres', tz: 'Europe/London', open: 8, close: 17 },
+  { city: 'Nueva York', tz: 'America/New_York', open: 8, close: 17 },
 ];
 const INVERTED = /unemployment|jobless|claims/i;
 
 const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => [...document.querySelectorAll(sel)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (v) => { const m = /-?\d+(?:\.\d+)?/.exec(String(v ?? '').replace(/,/g, '')); return m ? Number(m[0]) : null; };
 const biasFor = (s) => (s > 20 ? 'alcista' : s < -20 ? 'bajista' : 'neutral');
@@ -28,10 +31,11 @@ const ui = {
   knownNews: new Set(),
   pushOn: localStorage.getItem('rn-push') === '1',
   swReg: null,
+  syncing: false,
 };
 
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-const fmtDay = (d) => d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' });
+const fmtDay = (iso) => { const t = new Date(iso).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }); return t[0].toUpperCase() + t.slice(1); };
 const isToday = (iso) => new Date(iso).toDateString() === new Date().toDateString();
 const dayKey = (iso) => new Date(iso).toDateString();
 
@@ -46,9 +50,11 @@ function relTime(iso) {
 function countdown(ms) {
   if (ms <= 0) return '0:00';
   const t = Math.round(ms / 1000);
-  const h = Math.floor(t / 3600);
+  const d = Math.floor(t / 86400);
+  const h = Math.floor((t % 86400) / 3600);
   const m = Math.floor((t % 3600) / 60);
   const s = t % 60;
+  if (d) return `${d}d ${h}h`;
   return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}:${String(s).padStart(2, '0')}`;
 }
 
@@ -67,39 +73,37 @@ function renderSessions() {
       .formatToParts(now).map((p) => [p.type, p.value]));
     const h = Number(parts.hour) % 24;
     const open = !['Sat', 'Sun'].includes(parts.weekday) && h >= s.open && h < s.close;
-    return `<div class="session ${open ? 'open' : ''}" title="${open ? 'Sesión abierta' : 'Sesión cerrada'}"><span class="city">${s.city}</span><span class="clock">${parts.hour}:${parts.minute}</span></div>`;
+    return `<div class="session ${open ? 'open' : ''}" title="${s.city}: sesión ${open ? 'abierta' : 'cerrada'}"><span class="d"></span>${s.city}<span class="clock">${parts.hour}:${parts.minute}</span></div>`;
   }).join('');
-  const d = ui.data;
-  if (d) {
-    $('#next-sync').textContent = d.syncing ? 'en curso' : countdown(Date.parse(d.next_sync_at) - Date.now());
-    if (d.last_sync) $('#last-sync').title = relTime(d.last_sync.finished_at);
-  }
+  renderLive();
   renderNextEvent();
+}
+
+function renderLive() {
+  const d = ui.data;
+  const el = $('#live');
+  if (!d) return;
+  const err = d.error;
+  el.classList.toggle('syncing', ui.syncing);
+  el.classList.toggle('err', !!err && !ui.syncing);
+  const last = d.last_sync?.finished_at;
+  $('#live-text').textContent = ui.syncing ? 'Sincronizando…' : err ? 'Error de sincronización' : last ? `En vivo · ${relTime(last)}` : 'En vivo';
+  el.title = `${last ? `Última sincronización ${new Date(last).toLocaleTimeString('es-ES')}` : 'Sin sincronizar'} · próxima en ${countdown(Date.parse(d.next_sync_at) - Date.now())}`;
+}
+
+function setSyncing(on) {
+  ui.syncing = on;
+  $('#refresh').disabled = on;
+  $('#refresh').classList.toggle('loading', on);
+  renderLive();
 }
 
 function renderStatus() {
   const d = ui.data;
-  $('#last-sync').textContent = d.last_sync ? new Date(d.last_sync.finished_at).toLocaleTimeString('es-ES') : '—';
-  const pills = [`<span class="engine-pill ok" title="Clasificador por reglas: siempre activo">Agente</span>`];
-  if (d.llm.provider) {
-    const st = d.llm.status;
-    const cls = !st ? '' : st.ok ? 'ok' : 'err';
-    pills.push(`<span class="engine-pill ${cls}" title="${esc(st?.error || 'Motor LLM activo')}">${esc(d.llm.label)}</span>`);
-  } else {
-    pills.push('<span class="engine-pill off" title="Añade GEMINI_API_KEY para activar Gemini">Gemini off</span>');
-  }
-  $('#engines').innerHTML = pills.join('');
   const band = $('#error-band');
   band.hidden = !d.error;
   band.textContent = d.error ? `Error de sincronización: ${d.error}` : '';
   setSyncing(d.syncing);
-}
-
-function setSyncing(on) {
-  const b = $('#refresh');
-  b.disabled = on;
-  b.classList.toggle('loading', on);
-  b.querySelector('.txt').textContent = on ? 'SINCRONIZANDO' : 'ACTUALIZAR';
 }
 
 // ---------------------------------------------------------------- tape
@@ -113,14 +117,15 @@ function macroHtml(n) {
     const up = a > ref;
     cls = (INVERTED.test(n.title) ? !up : up) ? 'up' : 'down';
   }
-  return `<span class="macro">ACT <b class="${cls}">${esc(n.actual)}</b>${n.forecast ? ` · EST <b>${esc(n.forecast)}</b>` : ''}${n.previous ? ` · PREV <b>${esc(n.previous)}</b>` : ''}</span>`;
+  return `<span class="macro">Act <b class="${cls}">${esc(n.actual)}</b>${n.forecast ? ` · Est <b>${esc(n.forecast)}</b>` : ''}${n.previous ? ` · Prev <b>${esc(n.previous)}</b>` : ''}</span>`;
 }
 
 function renderCcyFilter() {
-  $('#ccy-filter').innerHTML = ['Todas', ...CURRENCIES].map((c) => {
-    const active = (c === 'Todas' && !ui.ccy) || c === ui.ccy;
-    return `<button data-ccy="${c}" class="${active ? 'active' : ''}">${c === 'Todas' ? 'TODAS' : c}</button>`;
-  }).join('');
+  const sel = $('#ccy-filter');
+  if (!sel.options.length) {
+    sel.innerHTML = '<option value="">Todas las divisas</option>' + CURRENCIES.map((c) => `<option value="${c}">${c}</option>`).join('');
+  }
+  sel.value = ui.ccy || '';
 }
 
 function renderTape() {
@@ -132,25 +137,34 @@ function renderTape() {
 
   const el = $('#tape');
   if (!d.news.length) {
-    el.innerHTML = `<div class="state-msg"><strong>La cinta está vacía</strong>Todavía no hay titulares relevantes.<button class="primary" data-action="refresh">ACTUALIZAR AHORA</button></div>`;
+    el.innerHTML = '<div class="state-msg"><strong>Aún no hay titulares</strong>Se cargan en la primera sincronización.<button class="btn primary" data-action="refresh">Actualizar ahora</button></div>';
     return;
   }
   if (!items.length) {
-    el.innerHTML = '<div class="state-msg">No hay titulares para este filtro.</div>';
+    el.innerHTML = '<div class="state-msg">No hay titulares con este filtro.</div>';
     return;
   }
   const firstLoad = ui.knownNews.size === 0;
+  let lastDay = '';
   el.innerHTML = items.slice(0, 250).map((n) => {
-    const brk = n.impact >= 4;
-    const fresh = !firstLoad && !ui.knownNews.has(n.id);
-    const day = isToday(n.published_at) ? '' : `<small>${new Date(n.published_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })}</small>`;
-    const dots = `<span class="impact" title="Impacto ${n.impact}/5"><i>${'■'.repeat(n.impact)}</i>${'■'.repeat(5 - n.impact)}</span>`;
-    return `<div class="row ${brk ? 'breaking' : ''} ${fresh ? 'fresh' : ''}">
-      <div class="time">${fmtTime(n.published_at)}${day}</div>
-      <div class="tags">${brk ? '<span class="tag brk">Breaking</span>' : ''}<span class="tag src ${n.source_type}">${esc(n.source)}</span><span class="tag cat">${CATEGORY_LABEL[n.category] || n.category}</span></div>
-      <div class="headline"><a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a>
-        <div class="sub">${macroHtml(n)}${n.calendar_title ? `<span class="cal-link">◆ ${esc(n.calendar_title)}</span>` : ''}${n.currencies.length ? `<span class="ccy">${n.currencies.join(' ')}</span>` : ''}${dots}</div>
-      </div>
+    let sep = '';
+    const k = dayKey(n.published_at);
+    if (k !== lastDay) {
+      if (lastDay || !isToday(n.published_at)) sep = `<div class="day-sep">${isToday(n.published_at) ? 'Hoy' : fmtDay(n.published_at)}</div>`;
+      lastDay = k;
+    }
+    const cls = [n.impact >= 5 ? 'critical' : n.impact >= 4 ? 'hot' : '', !firstLoad && !ui.knownNews.has(n.id) ? 'fresh' : ''].join(' ');
+    const meta = [
+      n.impact >= 4 ? `<span class="tag-hot">${n.impact >= 5 ? 'Crítico' : 'Breaking'}</span>` : '',
+      `<span>${esc(n.source)}</span>`,
+      `<span>${CATEGORY_LABEL[n.category] || n.category}</span>`,
+      n.currencies.length ? `<span class="ccy">${n.currencies.join(' · ')}</span>` : '',
+      macroHtml(n),
+      n.calendar_title ? `<span class="cal-link" title="Enlazado con la agenda">◆ ${esc(n.calendar_title)}</span>` : '',
+    ].filter(Boolean).join('');
+    return `${sep}<div class="row ${cls}">
+      <div class="time">${fmtTime(n.published_at)}</div>
+      <div class="headline"><a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a><div class="meta">${meta}</div></div>
     </div>`;
   }).join('');
   for (const n of d.news) ui.knownNews.add(n.id);
@@ -206,15 +220,15 @@ function engineView(engineId) {
 }
 
 function sparkline(series) {
-  if (!series || series.length < 2) return '<svg class="spark"></svg>';
+  if (!series || series.length < 2) return '';
   const pts = series.slice(-48);
-  const w = 58; const h = 18;
+  const w = 120; const h = 22;
   const x = (i) => (i / (pts.length - 1)) * w;
   const y = (v) => h / 2 - (v / 100) * (h / 2 - 1);
   const d = pts.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
   const last = pts[pts.length - 1];
-  const color = last > 0 ? '#34d399' : last < 0 ? '#ef4444' : '#7d8a98';
-  return `<svg class="spark" viewBox="0 0 ${w} ${h}"><line x1="0" x2="${w}" y1="${h / 2}" y2="${h / 2}" stroke="#1c252e" stroke-width="1"/><path d="${d}" fill="none" stroke="${color}" stroke-width="1.3"/></svg>`;
+  const color = last > 0 ? '#22c55e' : last < 0 ? '#ef4444' : '#7c8794';
+  return `<div class="spark-row"><svg class="spark" viewBox="0 0 ${w} ${h}"><line x1="0" x2="${w}" y1="${h / 2}" y2="${h / 2}" stroke="#2a323d"/><path d="${d}" fill="none" stroke="${color}" stroke-width="1.5"/></svg>Últimas 24 h</div>`;
 }
 
 function renderEngineTabs() {
@@ -225,8 +239,11 @@ function renderEngineTabs() {
   $('#engine-tabs').innerHTML = tabs.map((t) => `<button data-engine="${t.id}" class="${t.id === ui.engine ? 'active' : ''}">${t.label}</button>`).join('');
 }
 
+const driversList = (drivers) => `<ul>${drivers.map((x) => `<li>${esc(x)}</li>`).join('') || '<li>Sin catalizadores</li>'}</ul>`;
+
 function renderBoard() {
   renderEngineTabs();
+  $('#gemini-hint').hidden = !!ui.data.settings?.gemini?.configured || localStorage.getItem('rn-hide-gemini-hint') === '1';
   const view = engineView(ui.engine);
   const board = $('#board');
   if (!view) {
@@ -234,32 +251,33 @@ function renderBoard() {
     $('#matrix').innerHTML = '';
     $('#top-pairs').innerHTML = '';
     $('#batch-time').textContent = '';
+    $('#divergence').textContent = '';
     return;
   }
-  $('#batch-time').textContent = view.snapshot_at ? `${view.label} · lote ${fmtTime(view.snapshot_at)}` : '';
+  $('#batch-time').textContent = view.snapshot_at ? `${view.label} · actualizado ${fmtTime(view.snapshot_at)}` : '';
   const div = view.rows.filter((r) => r.diverge).map((r) => r.currency);
-  $('#divergence').innerHTML = div.length ? `<span class="div-flag" title="Los motores discrepan en el sesgo o en más de 40 puntos">DIVERGENCIA ${div.join(' ')}</span>` : '';
+  $('#divergence').innerHTML = div.length ? `<span class="div-flag" title="Agente y Gemini discrepan en el sesgo o en más de 40 puntos">Divergencia: ${div.join(', ')}</span>` : '';
 
   board.innerHTML = view.rows.map((r) => {
     const w = Math.abs(r.score) / 2;
     const cls = r.score > 0 ? 'pos' : r.score < 0 ? 'neg' : 'zero';
-    let delta = '<span class="delta flat">·</span>';
+    let delta = '<span class="delta"></span>';
     if (r.prevRank && r.prevRank !== r.rank) {
       const up = r.prevRank > r.rank;
       delta = `<span class="delta ${up ? 'up' : 'down'}" title="Antes #${r.prevRank}">${up ? '▲' : '▼'}${Math.abs(r.prevRank - r.rank)}</span>`;
     }
     const markers = view.consensus ? r.perEngine.filter((p) => p.row).map((p) => `<span class="other" title="${esc(p.label)}: ${signed(p.row.score)}" style="left:calc(${50 + p.row.score / 2}% - 1px)"></span>`).join('') : '';
     const detail = view.consensus
-      ? r.perEngine.map((p) => p.row ? `<h4>${esc(p.label)} · ${signed(p.row.score)} · ${p.row.bias}</h4><ul>${p.row.drivers.map((x) => `<li>${esc(x)}</li>`).join('') || '<li>Sin catalizadores</li>'}</ul><div>${esc(p.row.rationale)}</div>` : '').join('')
-      : `<ul>${r.drivers.map((x) => `<li>${esc(x)}</li>`).join('') || '<li>Sin catalizadores</li>'}</ul><div>${esc(r.rationale || '')}</div>`;
+      ? r.perEngine.map((p) => (p.row ? `<h4>${esc(p.label)} · ${signed(p.row.score)} · ${p.row.bias}</h4>${driversList(p.row.drivers)}<div>${esc(p.row.rationale)}</div>` : '')).join('')
+      : `${driversList(r.drivers)}<div>${esc(r.rationale || '')}</div>`;
     return `<li class="ccy-row ${ui.open.has(r.currency) ? 'open' : ''}" data-ccy="${r.currency}">
       <div class="ccy-line">
-        <span class="rank">${r.rank}</span>${delta}<span class="code">${r.currency}</span>
+        <span class="rank">${r.rank}</span><span class="code">${r.currency}</span>
         <div class="bar"><span class="mid"></span><span class="fill ${cls}" style="width:${w}%"></span>${markers}</div>
-        <span class="score ${cls}">${signed(r.score)}</span>${sparkline(r.series)}
+        <span class="score ${cls}">${signed(r.score)}</span>${delta}
       </div>
-      <div class="ccy-sub"><span class="bias ${r.bias}">${r.bias}</span>${r.diverge ? '<span class="div-flag">≠</span>' : ''}<span class="driver">${esc(r.drivers[0] || 'Sin catalizadores claros')}</span></div>
-      <div class="ccy-detail">${detail}</div>
+      <div class="ccy-sub"><span class="bias ${r.bias}">${r.bias[0].toUpperCase() + r.bias.slice(1)}</span>${r.diverge ? '<span class="div-flag" title="Los motores discrepan">≠</span>' : ''}<span class="driver">${esc(r.drivers[0] || 'Sin catalizadores claros')}</span></div>
+      <div class="ccy-detail">${detail}${sparkline(r.series)}</div>
     </li>`;
   }).join('');
 
@@ -271,7 +289,7 @@ function renderBoard() {
 
 function cellColor(v) {
   const a = Math.min(1, Math.abs(v) / 120);
-  return v > 0 ? `rgba(16,185,129,${0.08 + a * 0.62})` : v < 0 ? `rgba(239,68,68,${0.08 + a * 0.62})` : '#0f151b';
+  return v > 0 ? `rgba(34,197,94,${0.06 + a * 0.5})` : v < 0 ? `rgba(239,68,68,${0.06 + a * 0.5})` : '#0a0d11';
 }
 
 function renderMatrix(rows) {
@@ -281,9 +299,9 @@ function renderMatrix(rows) {
   for (const a of order) {
     html += `<span class="rh">${a}</span>`;
     for (const b of order) {
-      if (a === b) { html += '<span class="c self">·</span>'; continue; }
+      if (a === b) { html += '<span class="self">·</span>'; continue; }
       const v = s[a] - s[b];
-      html += `<span class="c" style="background:${cellColor(v)}" title="${a} vs ${b}: ${signed(v)}">${signed(v)}</span>`;
+      html += `<span style="background:${cellColor(v)}" title="${a} vs ${b}: ${signed(v)}">${signed(v)}</span>`;
     }
   }
   $('#matrix').innerHTML = html;
@@ -293,15 +311,17 @@ function renderMatrix(rows) {
     for (let j = i + 1; j < CURRENCIES.length; j++) {
       const [x, y] = [CURRENCIES[i], CURRENCIES[j]];
       const [base, quote] = PAIR_PRIORITY.indexOf(x) < PAIR_PRIORITY.indexOf(y) ? [x, y] : [y, x];
-      pairs.push({ pair: `${base}/${quote}`, v: s[base] - s[quote] });
+      pairs.push({ base, quote, v: s[base] - s[quote] });
     }
   }
   pairs.sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
-  $('#top-pairs').innerHTML = '<div class="pair muted"><span>MAYOR DIFERENCIAL NARRATIVO</span><span></span></div>'
-    + pairs.slice(0, 4).map((p) => `<div class="pair"><b>${p.pair}</b><span class="${p.v > 0 ? 'macro up' : 'macro down'}">${p.v > 0 ? '▲ base' : '▼ base'} ${signed(p.v)}</span></div>`).join('');
+  $('#top-pairs').innerHTML = pairs.slice(0, 4).map((p) => `<div class="pair">
+      <div><b>${p.base}/${p.quote}</b><small>${p.v > 0 ? p.base : p.quote} más fuerte</small></div>
+      <span class="${p.v > 0 ? 'up' : 'down'}">${p.v > 0 ? '▲' : '▼'} ${Math.abs(p.v)}</span>
+    </div>`).join('');
 }
 
-// ---------------------------------------------------------------- calendar
+// ---------------------------------------------------------------- agenda
 
 function calFiltered() {
   const ev = ui.data.calendar;
@@ -311,36 +331,47 @@ function calFiltered() {
 }
 
 function renderCalendar() {
-  for (const b of document.querySelectorAll('#cal-filter button')) b.classList.toggle('active', b.dataset.impact === ui.calImpact);
+  for (const b of $$('#cal-filter button')) b.classList.toggle('active', b.dataset.impact === ui.calImpact);
   const events = calFiltered();
   const el = $('#calendar');
   if (!ui.data.calendar.length) {
-    el.innerHTML = '<div class="cal-empty">Calendario no disponible todavía.</div>';
+    el.innerHTML = '<div class="cal-empty">La agenda de la semana aún no está disponible.</div>';
+    renderNextEvent();
     return;
   }
   const now = Date.now();
-  const nextHigh = ui.data.calendar.find((e) => e.impact === 'High' && Date.parse(e.event_at) > now);
+  const upcoming = ui.data.calendar.filter((e) => Date.parse(e.event_at) > now);
+  const nextHigh = upcoming.find((e) => e.impact === 'High') || upcoming.find((e) => e.impact === 'Medium');
   let html = '';
   let lastDay = '';
+  let scrollTo = null;
   for (const e of events) {
     const k = dayKey(e.event_at);
     if (k !== lastDay) {
-      html += `<div class="cal-day ${isToday(e.event_at) ? 'today' : ''}">${fmtDay(new Date(e.event_at))}${isToday(e.event_at) ? ' · hoy' : ''}</div>`;
+      html += `<div class="cal-day ${isToday(e.event_at) ? 'today' : ''}" ${isToday(e.event_at) ? 'id="cal-today"' : ''}>${fmtDay(e.event_at)}</div>`;
       lastDay = k;
     }
     const past = Date.parse(e.event_at) < now;
+    if (!past && !scrollTo) scrollTo = e.id;
     let actCls = '';
     if (e.actual && e.forecast) {
       const a = num(e.actual); const f = num(e.forecast);
       if (a != null && f != null && a !== f) actCls = ((a > f) !== INVERTED.test(e.title)) ? 'up' : 'down';
     }
-    const vals = [e.actual && `ACT <b class="${actCls}">${esc(e.actual)}</b>`, e.forecast && `EST <b>${esc(e.forecast)}</b>`, e.previous && `PREV <b>${esc(e.previous)}</b>`].filter(Boolean).join('');
-    html += `<div class="ev ${past ? 'past' : ''} ${nextHigh && e.id === nextHigh.id ? 'next' : ''}">
-      <span class="t">${e.impact === 'Holiday' ? 'Día' : fmtTime(e.event_at)}</span><span class="cur">${e.currency}</span><span class="imp ${e.impact}" title="Impacto ${e.impact}"></span>
-      <div><div>${esc(e.title)}</div>${vals ? `<div class="vals">${vals}</div>` : ''}</div>
+    const vals = [e.actual && `<span>Act <b class="${actCls}">${esc(e.actual)}</b></span>`, e.forecast && `<span>Est <b>${esc(e.forecast)}</b></span>`, e.previous && `<span>Prev <b>${esc(e.previous)}</b></span>`].filter(Boolean).join('');
+    const impactLabel = { High: 'Alto', Medium: 'Medio', Low: 'Bajo', Holiday: 'Festivo' }[e.impact] || e.impact;
+    html += `<div class="ev ${e.impact} ${past ? 'past' : ''} ${nextHigh && e.id === nextHigh.id ? 'next' : ''}" data-ev="${esc(e.id)}" title="Impacto ${impactLabel}">
+      <span class="t">${e.impact === 'Holiday' ? 'Día' : fmtTime(e.event_at)}</span><span class="cur">${e.currency}</span>
+      <div><div class="title">${esc(e.title)}</div>${vals ? `<div class="vals">${vals}</div>` : ''}</div>
     </div>`;
   }
+  const first = !el.dataset.rendered;
   el.innerHTML = html || '<div class="cal-empty">Sin eventos para este filtro.</div>';
+  if (first && scrollTo) {
+    el.dataset.rendered = '1';
+    const target = el.querySelector(`[data-ev="${CSS.escape(scrollTo)}"]`);
+    if (target) el.scrollTop = Math.max(0, target.offsetTop - 80);
+  }
   renderNextEvent();
 }
 
@@ -348,11 +379,17 @@ function renderNextEvent() {
   const d = ui.data;
   const box = $('#next-event');
   if (!d) return;
-  const next = d.calendar.find((e) => e.impact === 'High' && Date.parse(e.event_at) > Date.now());
-  box.hidden = !next;
-  if (next) {
-    box.innerHTML = `PRÓXIMO ALTO IMPACTO · <b>${next.currency}</b> ${esc(next.title)} · ${fmtTime(next.event_at)} · <span class="cd">${countdown(Date.parse(next.event_at) - Date.now())}</span>${next.forecast ? ` · EST ${esc(next.forecast)}` : ''}`;
+  const upcoming = d.calendar.filter((e) => Date.parse(e.event_at) > Date.now());
+  const next = upcoming.find((e) => e.impact === 'High') || upcoming.find((e) => e.impact === 'Medium');
+  box.hidden = !d.calendar.length;
+  if (!next) {
+    box.innerHTML = '<div class="lbl">Próximo dato</div><div class="ttl"><span>Sin más datos relevantes esta semana</span></div>';
+    return;
   }
+  const when = isToday(next.event_at) ? `Hoy ${fmtTime(next.event_at)}` : `${new Date(next.event_at).toLocaleDateString('es-ES', { weekday: 'long' })} ${fmtTime(next.event_at)}`;
+  box.innerHTML = `<div class="lbl">Próximo dato · impacto ${next.impact === 'High' ? 'alto' : 'medio'}</div>
+    <div class="ttl"><span class="cur">${next.currency}</span><span>${esc(next.title)}</span></div>
+    <div class="bottom"><span>${when}${next.forecast ? ` · Est ${esc(next.forecast)}` : ''}${next.previous ? ` · Prev ${esc(next.previous)}` : ''}</span><span class="cd">${countdown(Date.parse(next.event_at) - Date.now())}</span></div>`;
 }
 
 // ---------------------------------------------------------------- alerts
@@ -362,42 +399,53 @@ function renderAlerts() {
   const badge = $('#badge');
   badge.hidden = d.unread === 0;
   badge.textContent = d.unread > 99 ? '99+' : d.unread;
-  document.title = d.unread ? `(${d.unread}) RadarNews` : 'RadarNews · Terminal macro FX';
+  document.title = d.unread ? `(${d.unread}) RadarNews` : 'RadarNews';
+  navigator.setAppBadge?.(d.unread || undefined)?.catch?.(() => {});
   $('#alerts-list').innerHTML = d.alerts.length
     ? d.alerts.map((a) => `<li class="alert ${a.level} ${a.is_read ? '' : 'unread'}">
         <div class="meta"><span class="lvl ${a.level}">${LEVEL_LABEL[a.level]}</span><span>${TYPE_LABEL[a.alert_type] || a.alert_type}</span>${a.currency ? `<span>${a.currency}</span>` : ''}<span>${relTime(a.occurred_at)}</span></div>
         <div class="t">${esc(a.title)}</div>${a.body ? `<div class="b">${esc(a.body)}</div>` : ''}
       </li>`).join('')
-    : '<li class="alerts-empty">Sin alertas. Silencio salvo lo que importa.</li>';
-  renderNotifButton();
+    : '<li class="alerts-empty">Sin alertas. Solo avisamos de lo que importa.</li>';
+  renderNotif();
 }
 
-function renderNotifButton() {
+function notifState() {
+  if (!('Notification' in window)) return 'unsupported';
+  if (Notification.permission === 'granted') return ui.pushOn ? 'push' : 'local';
+  return Notification.permission;
+}
+
+function renderNotif() {
+  const st = notifState();
   const btn = $('#notif-btn');
-  const test = $('#notif-test');
-  if (!('Notification' in window)) {
-    btn.textContent = 'Este navegador no admite notificaciones';
-    btn.disabled = true;
-    return;
-  }
-  const perm = Notification.permission;
-  btn.classList.toggle('on', perm === 'granted');
-  btn.textContent = perm === 'granted'
-    ? (ui.pushOn ? 'Notificaciones push activas' : 'Notificaciones activas (con la app abierta)')
-    : perm === 'denied' ? 'Notificaciones bloqueadas en Ajustes' : 'Activar notificaciones';
-  test.hidden = !ui.pushOn;
+  const text = {
+    unsupported: 'Este navegador no admite notificaciones. En Mac usa Safari (Añadir al Dock) o Chrome.',
+    push: 'Push activo: recibirás alertas aunque la app esté cerrada.',
+    local: 'Activas mientras la app esté abierta. Pulsa para activar push.',
+    denied: 'Bloqueadas. Actívalas en Ajustes del Sistema › Notificaciones.',
+    default: 'Desactivadas.',
+  }[st];
+  $('#notif-state').textContent = text;
+  btn.disabled = st === 'unsupported' || st === 'denied' || st === 'push';
+  btn.textContent = st === 'push' ? 'Activas' : 'Activar';
+  btn.classList.toggle('on', st === 'push');
+  $('#notif-test').hidden = st !== 'push' && st !== 'local';
+  const n = ui.data?.push_devices ?? 0;
+  $('#push-devices').textContent = `${n} ${n === 1 ? 'dispositivo suscrito' : 'dispositivos suscritos'}`;
+  $('#notif-hint').hidden = st === 'push' || st === 'unsupported' || st === 'denied';
 }
 
 function toast(a) {
   const el = document.createElement('div');
-  el.className = `toast ${a.level}`;
+  el.className = `toast ${a.level || ''}`;
   el.innerHTML = `<div class="t">${esc(a.title)}</div>${a.body ? `<div class="b">${esc(a.body)}</div>` : ''}`;
   $('#toasts').appendChild(el);
   setTimeout(() => el.remove(), 9000);
 }
 
 async function localNotify(a) {
-  if (ui.pushOn || !('Notification' in window) || Notification.permission !== 'granted') return;
+  if (ui.pushOn || notifState() !== 'local') return;
   const opts = { body: a.body || '', tag: `rn-${a.id}`, icon: '/icon-512.png' };
   try {
     if (ui.swReg) await ui.swReg.showNotification(a.title, opts);
@@ -414,7 +462,7 @@ function urlB64ToUint8Array(b64) {
 async function enableNotifications() {
   if (!('Notification' in window)) return;
   const perm = await Notification.requestPermission();
-  if (perm !== 'granted') return renderNotifButton();
+  if (perm !== 'granted') return renderNotif();
   try {
     if (ui.swReg && 'PushManager' in window) {
       const { publicKey } = await api('/api/push/key');
@@ -423,34 +471,111 @@ async function enableNotifications() {
       await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
       ui.pushOn = true;
       localStorage.setItem('rn-push', '1');
+      toast({ level: 'alto', title: 'Notificaciones activadas', body: 'Recibirás las alertas en este dispositivo.' });
     }
   } catch (err) {
     console.warn('Push no disponible, se usarán notificaciones locales:', err);
     ui.pushOn = false;
     localStorage.removeItem('rn-push');
   }
-  renderNotifButton();
+  await load();
 }
 
-// ---------------------------------------------------------------- health
+async function testNotification() {
+  if (ui.pushOn) {
+    const { sent } = await api('/api/push/test', { method: 'POST' });
+    toast({ title: 'Prueba enviada', body: `${sent} ${sent === 1 ? 'dispositivo' : 'dispositivos'}` });
+  } else {
+    localNotify({ id: Date.now(), title: 'Prueba de RadarNews', body: 'Las notificaciones funcionan con la app abierta.' });
+  }
+}
+
+// ---------------------------------------------------------------- health & settings
+
+function sourceRows() {
+  const health = ui.data.last_sync?.health || [];
+  const byId = new Map(health.map((h) => [h.id, h]));
+  return ui.data.sources.map((s) => ({ ...s, h: byId.get(s.id) }));
+}
 
 function renderHealth() {
-  const h = ui.data.last_sync?.health || [];
-  const seen = new Map();
-  for (const x of h) {
-    const prev = seen.get(x.source);
-    seen.set(x.source, prev
-      ? { ...prev, ok: prev.ok && x.ok, inserted: prev.inserted + x.inserted, relevant: prev.relevant + x.relevant, error: prev.error || x.error }
-      : { ...x });
-  }
+  const rows = sourceRows();
+  const checked = rows.filter((r) => r.h);
+  const ok = checked.filter((r) => r.h.ok).length;
   const cal = ui.data.calendar_sync;
-  const items = [...seen.values()].map((x) => {
-    const cls = !x.ok ? 'err' : x.relevant === 0 ? 'idle' : '';
-    const title = x.ok ? `${x.relevant} relevantes en ventana · +${x.inserted} en la última sinc.` : `Error: ${x.error}`;
-    return `<span class="src ${cls}" title="${esc(title)}">${esc(x.source)} ${x.ok ? `+${x.inserted}` : 'ERR'}</span>`;
-  });
-  items.push(`<span class="src ${cal ? '' : 'err'}" title="${cal ? `Semana desde ${cal.week_start}` : 'Sin calendario'}">Calendario ${cal ? cal.events : 'ERR'}</span>`);
-  $('#health').innerHTML = items.join('');
+  const el = $('#health');
+  el.className = `health ${!checked.length ? 'warn' : ok === checked.length && cal ? '' : ok === 0 ? 'err' : 'warn'}`;
+  el.innerHTML = `<span class="d"></span>${checked.length ? `${ok}/${rows.length} fuentes operativas` : 'Fuentes pendientes'} · Agenda ${cal ? `${cal.events} eventos` : 'no disponible'}`;
+
+  const llm = ui.data.llm;
+  const st = llm.status;
+  $('#engines-status').textContent = llm.provider
+    ? `Motores: Agente + ${llm.label}${st && !st.ok ? ' (error)' : ''}`
+    : 'Motor: Agente · Gemini sin configurar';
+
+  $('#sources-body').innerHTML = rows.map((r) => `<tr>
+      <td>${esc(r.name)}</td><td class="muted">${SOURCE_TYPE[r.type] || r.type}</td>
+      <td>${r.h ? r.h.relevant : '—'}</td><td>${r.h ? `+${r.h.inserted}` : '—'}</td>
+      <td>${!r.h ? '<span class="muted">Pendiente</span>' : r.h.ok ? '<span class="st">Operativa</span>' : `<span class="st err" title="${esc(r.h.error)}">Error</span>`}</td>
+    </tr>`).join('') + `<tr><td>Agenda (ForexFactory)</td><td class="muted">Calendario</td><td>${cal ? cal.events : '—'}</td><td>—</td><td>${cal ? '<span class="st">Operativa</span>' : '<span class="st err">Error</span>'}</td></tr>`;
+}
+
+function renderSettings() {
+  const g = ui.data.settings?.gemini || {};
+  const st = ui.data.llm.status;
+  const pill = $('#gemini-pill');
+  if (!g.configured) {
+    pill.className = 'pill';
+    pill.textContent = 'Sin configurar';
+    $('#gemini-state').textContent = 'Pega tu clave gratuita para activar el segundo motor.';
+  } else {
+    const err = st?.provider === 'gemini' && st.ok === false;
+    pill.className = `pill ${err ? 'err' : 'ok'}`;
+    pill.textContent = err ? 'Error' : 'Activo';
+    $('#gemini-state').textContent = `Clave ${g.masked} · ${g.model}${g.origin === 'env' ? ' · desde .env' : ''}${err ? ` · ${st.error}` : ''}`;
+  }
+  $('#gemini-remove').hidden = g.origin !== 'app';
+  $('#gemini-save').textContent = g.configured ? 'Probar y reemplazar' : 'Probar y guardar';
+}
+
+function formMsg(text, kind) {
+  const el = $('#gemini-msg');
+  el.hidden = !text;
+  el.className = `form-msg ${kind || ''}`;
+  el.textContent = text || '';
+}
+
+async function saveGemini(e) {
+  e.preventDefault();
+  const key = $('#gemini-key').value.trim();
+  if (!key) return formMsg('Pega primero la clave.', 'err');
+  const btn = $('#gemini-save');
+  btn.disabled = true;
+  formMsg('Comprobando la clave con Google…');
+  try {
+    await api('/api/settings/gemini', { method: 'POST', body: JSON.stringify({ key }) });
+    $('#gemini-key').value = '';
+    formMsg('Clave válida y guardada. Gemini está analizando los titulares…', 'ok');
+    await load();
+  } catch (err) {
+    formMsg(err.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function removeGemini() {
+  if (!confirm('¿Eliminar la clave de Gemini? El Agente seguirá funcionando.')) return;
+  await api('/api/settings/gemini', { method: 'POST', body: JSON.stringify({ key: '' }) });
+  formMsg('Clave eliminada.', 'ok');
+  await load();
+}
+
+function openSettings(tab = 'ai') {
+  for (const b of $$('#settings-tabs button')) b.classList.toggle('active', b.dataset.tab === tab);
+  for (const p of $$('#settings .tab')) p.hidden = p.dataset.pane !== tab;
+  const dlg = $('#settings');
+  if (!dlg.open) dlg.showModal();
 }
 
 // ---------------------------------------------------------------- spec
@@ -488,8 +613,8 @@ function mdToHtml(md) {
 }
 
 async function openSpec() {
-  const dlg = $('#spec-dialog');
-  dlg.showModal();
+  $('#settings').close();
+  $('#spec-dialog').showModal();
   try {
     const res = await fetch('/api/spec');
     $('#spec-body').innerHTML = mdToHtml(await res.text());
@@ -508,6 +633,7 @@ function renderAll() {
   renderCalendar();
   renderAlerts();
   renderHealth();
+  renderSettings();
 }
 
 async function load() {
@@ -522,6 +648,7 @@ async function load() {
 }
 
 async function refresh() {
+  if (ui.syncing) return;
   setSyncing(true);
   try {
     await api('/api/refresh', { method: 'POST' });
@@ -540,26 +667,21 @@ function connectEvents() {
     for (const a of alerts.slice(0, 4)) { toast(a); localNotify(a); }
     load();
   });
-  es.onerror = () => { /* EventSource reconnects on its own */ };
+  es.onopen = () => { if (ui.data) load(); };
 }
 
 function bind() {
   $('#refresh').addEventListener('click', refresh);
+  $('#live').addEventListener('click', () => openSettings('sources'));
   $('#tape').addEventListener('click', (e) => { if (e.target.closest('[data-action="refresh"]')) refresh(); });
   $('#filters').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-filter]');
     if (!b) return;
     ui.filter = b.dataset.filter;
-    for (const x of document.querySelectorAll('#filters button')) x.classList.toggle('active', x === b);
+    for (const x of $$('#filters button')) x.classList.toggle('active', x === b);
     renderTape();
   });
-  $('#ccy-filter').addEventListener('click', (e) => {
-    const b = e.target.closest('button[data-ccy]');
-    if (!b) return;
-    ui.ccy = b.dataset.ccy === 'Todas' || b.dataset.ccy === ui.ccy ? null : b.dataset.ccy;
-    renderCcyFilter();
-    renderTape();
-  });
+  $('#ccy-filter').addEventListener('change', (e) => { ui.ccy = e.target.value || null; renderTape(); });
   $('#engine-tabs').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-engine]');
     if (!b) return;
@@ -590,19 +712,34 @@ function bind() {
   $('#bell').addEventListener('click', (e) => { e.stopPropagation(); togglePanel(); });
   document.addEventListener('click', (e) => { if (!panel.hidden && !e.target.closest('.bell-wrap')) togglePanel(false); });
   $('#read-all').addEventListener('click', async () => { await api('/api/alerts/read-all', { method: 'POST' }); load(); });
+  $('#notif-hint-btn').addEventListener('click', enableNotifications);
+
+  $('#settings-btn').addEventListener('click', () => openSettings());
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-open-settings]');
+    if (t) openSettings(t.dataset.openSettings);
+  });
+  $('#settings-tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-tab]');
+    if (b) openSettings(b.dataset.tab);
+  });
+  for (const b of $$('[data-close]')) b.addEventListener('click', () => b.closest('dialog').close());
+  for (const d of $$('dialog')) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
+  $('#gemini-form').addEventListener('submit', saveGemini);
+  $('#gemini-remove').addEventListener('click', removeGemini);
   $('#notif-btn').addEventListener('click', enableNotifications);
-  $('#notif-test').addEventListener('click', () => api('/api/push/test', { method: 'POST' }));
+  $('#notif-test').addEventListener('click', testNotification);
   $('#spec-btn').addEventListener('click', openSpec);
-  $('#spec-close').addEventListener('click', () => $('#spec-dialog').close());
 
   document.addEventListener('keydown', (e) => {
-    if (e.metaKey || e.ctrlKey || e.altKey || e.target.matches('input, textarea')) return;
-    if ($('#spec-dialog').open) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.target.matches('input, textarea, select')) return;
+    if ($$('dialog').some((d) => d.open)) return;
     const k = e.key.toLowerCase();
     if (k === 'r') refresh();
     else if (k === 'a') togglePanel();
+    else if (k === ',') openSettings();
     else if (k === 'escape') togglePanel(false);
-    else if ('12345'.includes(k)) document.querySelectorAll('#filters button')[Number(k) - 1]?.click();
+    else if ('12345'.includes(k)) $$('#filters button')[Number(k) - 1]?.click();
   });
 }
 
@@ -616,7 +753,7 @@ async function registerSw() {
 }
 
 bind();
-registerSw().then(renderNotifButton);
+registerSw().then(() => ui.data && renderNotif());
 load();
 connectEvents();
 setInterval(renderSessions, 1000);
