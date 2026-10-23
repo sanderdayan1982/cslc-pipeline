@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#05070a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="RadarNews" />
+  <title>RadarNews · Terminal macro FX</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icon-512.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="radar" aria-hidden="true"></span>
+      <span class="logo">RADAR<span class="accent">NEWS</span></span>
+      <span class="tagline">Macro FX · Fuerza narrativa</span>
+    </div>
+    <div id="sessions" class="sessions" aria-label="Sesiones de mercado"></div>
+    <div class="status">
+      <div class="stat"><span class="label">ÚLT. SINC.</span><span id="last-sync" class="mono">—</span></div>
+      <div class="stat"><span class="label">PRÓX.</span><span id="next-sync" class="mono">—</span></div>
+      <div id="engines" class="engines"></div>
+    </div>
+    <div class="actions">
+      <button id="spec-btn" class="ghost" title="Especificación del producto">ESPECIFICACIÓN</button>
+      <div class="bell-wrap">
+        <button id="bell" class="icon-btn" aria-label="Alertas" aria-expanded="false" title="Alertas (A)">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span id="badge" class="badge" hidden>0</span>
+        </button>
+        <section id="alerts-panel" class="alerts-panel" hidden>
+          <div class="alerts-head">
+            <strong>Centro de alertas</strong>
+            <button id="read-all" class="link">Marcar todas leídas</button>
+          </div>
+          <div class="notif-row">
+            <button id="notif-btn" class="notif-btn">Activar notificaciones</button>
+            <button id="notif-test" class="link" hidden>Enviar prueba</button>
+          </div>
+          <ul id="alerts-list" class="alerts-list"></ul>
+        </section>
+      </div>
+      <button id="refresh" class="primary" title="Actualizar (R)"><span class="spinner" aria-hidden="true"></span><span class="txt">ACTUALIZAR</span></button>
+    </div>
+  </header>
+
+  <div id="error-band" class="error-band" hidden></div>
+
+  <main class="layout">
+    <section class="tape panel">
+      <div class="panel-head">
+        <h2>Cinta de breaking</h2>
+        <nav id="filters" class="filters" role="tablist">
+          <button data-filter="all" class="active" title="1">Todas</button>
+          <button data-filter="breaking" title="2">Breaking</button>
+          <button data-filter="dato_macro" title="3">Datos</button>
+          <button data-filter="banco_central" title="4">Bancos</button>
+          <button data-filter="geopolitica" title="5">Geo</button>
+        </nav>
+        <div class="ccy-filter" id="ccy-filter"></div>
+      </div>
+      <div id="tape" class="tape-body">
+        <div class="state-msg"><span class="spinner big"></span>Cargando cinta…</div>
+      </div>
+    </section>
+
+    <section class="board panel">
+      <div class="panel-head">
+        <h2>Fuerza relativa</h2>
+        <nav id="engine-tabs" class="filters"></nav>
+      </div>
+      <div class="board-meta"><span id="batch-time" class="muted mono"></span><span id="divergence" class="muted"></span></div>
+      <div class="scale mono"><span>−100</span><span>0</span><span>+100</span><span class="spark-h">24 H</span></div>
+      <ol id="board" class="board-list"></ol>
+      <div id="regime" class="regime" hidden></div>
+
+      <div class="subhead">
+        <h3>Diferencial narrativo</h3>
+        <span class="muted">fila − columna</span>
+      </div>
+      <div id="matrix" class="matrix"></div>
+      <div id="top-pairs" class="top-pairs"></div>
+      <p class="footnote">Clasificación narrativa a partir de titulares, nunca de precios.</p>
+    </section>
+
+    <section class="calendar panel">
+      <div class="panel-head">
+        <h2>Calendario semanal</h2>
+        <nav id="cal-filter" class="filters">
+          <button data-impact="High">Alto</button>
+          <button data-impact="Medium" class="active">Alto+Medio</button>
+          <button data-impact="all">Todos</button>
+        </nav>
+      </div>
+      <div id="next-event" class="next-event" hidden></div>
+      <div id="calendar" class="calendar-body"></div>
+    </section>
+  </main>
+
+  <footer class="statusbar">
+    <div id="health" class="health"></div>
+    <div class="shortcuts mono">R actualizar · A alertas · 1–5 filtros · Esc cerrar</div>
+  </footer>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <dialog id="spec-dialog" class="spec-dialog">
+    <div class="spec-head">
+      <strong>Especificación del producto</strong>
+      <button id="spec-close" class="icon-btn" aria-label="Cerrar">✕</button>
+    </div>
+    <article id="spec-body" class="spec-body">Cargando…</article>
+  </dialog>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
