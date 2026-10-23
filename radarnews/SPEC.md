@@ -157,6 +157,9 @@ Un solo comando en Terminal (`macos/install.sh`): Node.js 22 portátil verificad
 - Push web estándar (VAPID): funciona en Safari para Mac (web app en el Dock) y en iPhone (web app en la pantalla de inicio, iOS 16.4+), sin cuenta de desarrollador de Apple.
 - Disparan alerta: impacto ≥ 4, breaking impacto ≥ 3 con divisa, datos de alto impacto **15 min antes** de su publicación, cambios de régimen y de ranking de cada motor.
 - Máx. 4 push por ciclo; el resto se resume en una sola notificación.
+- **Todos los dispositivos** suscritos reciben cada alerta en paralelo. Cada uno guarda nombre (iPhone · app, Mac · Chrome…), última entrega y último error; se gestionan en Ajustes › Notificaciones. Las suscripciones caducadas (404/410) se eliminan solas y cada dispositivo renueva la suya al abrir la app.
+- El push lleva el número de no leídas para el badge del icono (iOS 16.4+, macOS).
+- En macOS el servidor mantiene el Mac despierto (`caffeinate -i -s -w <pid>`) mientras funciona; si deja de sincronizar más de 15 min la app lo indica en todos los dispositivos.
 - **Máximo 2 resúmenes al día** fuera del breaking (pendiente).
 
 ## 9. Fases

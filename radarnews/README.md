@@ -78,6 +78,14 @@ Para abrirlo desde el iPhone o el iPad, con push, hace falta HTTPS entre tus dis
 
 Al volver a la app desde segundo plano se pone al día sola.
 
+### Alertas en todos los dispositivos
+
+- Cada alerta llega **a la vez a todos** los dispositivos activados (varios iPhone, iPad y Mac). Activa las notificaciones una vez en cada uno.
+- **⚙︎ Ajustes → Notificaciones** lista los dispositivos con su última entrega, permite quitar uno y **Enviar prueba a todos**.
+- El número de alertas sin leer aparece en el icono de la pantalla de inicio y del Dock.
+- Cada vez que abres la app en un dispositivo renueva su suscripción, por si iOS la ha invalidado.
+- **El Mac es el servidor**: mientras RadarNews funciona, impide que el Mac entre en reposo por inactividad (la pantalla sí se apaga). Si es un portátil, déjalo enchufado y con la tapa abierta (o cerrado con pantalla externa): con la tapa cerrada macOS lo duerme y las alertas se pausan hasta que despierte. Si pasa, el iPhone muestra "Sin datos desde…".
+
 ### Alternativa: servidor gratuito en la nube
 
 Para que funcione con el Mac apagado, el `Dockerfile` sirve para cualquier máquina gratuita (p. ej. la capa *Always Free* de Oracle Cloud):
