@@ -31,6 +31,76 @@ fail() { printf '\033[31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+
+# ------------------------------------------------------------------ RadarNews.app builder
+
+# $1 = PNG de 1024 px para el icono; el script lanzador llega por stdin.
+make_app() {
+  APP="$HOME/Applications/RadarNews.app"
+  rm -rf "$APP"
+  mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+  local iconset="$TMP/AppIcon.iconset"
+  rm -rf "$iconset"
+  mkdir -p "$iconset"
+  for s in 16 32 128 256 512; do
+    sips -z "$s" "$s" "$1" --out "$iconset/icon_${s}x${s}.png" >/dev/null
+    sips -z "$((s * 2))" "$((s * 2))" "$1" --out "$iconset/icon_${s}x${s}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$iconset" -o "$APP/Contents/Resources/AppIcon.icns"
+  cat > "$APP/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>RadarNews</string>
+  <key>CFBundleDisplayName</key><string>RadarNews</string>
+  <key>CFBundleIdentifier</key><string>com.radarnews.launcher</string>
+  <key>CFBundleExecutable</key><string>RadarNews</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+PLIST
+  cat > "$APP/Contents/MacOS/RadarNews"
+  chmod +x "$APP/Contents/MacOS/RadarNews"
+  touch "$APP"
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP" 2>/dev/null || true
+}
+
+# ------------------------------------------------------------------ client mode (servidor en la nube)
+
+if [[ -n "${RADARNEWS_URL:-}" ]]; then
+  [[ "$OS" == "Darwin" ]] || fail "El modo cliente es para el Mac"
+  REMOTE="${RADARNEWS_URL%/}"
+  [[ "$REMOTE" == https://* ]] || fail "RADARNEWS_URL debe empezar por https://"
+  bold "Conectando este Mac al servidor RadarNews $REMOTE"
+  if [[ -f "$HOME/Library/LaunchAgents/$LABEL.plist" ]]; then
+    step "Deteniendo el servidor local del Mac (tus datos locales se conservan)"
+    launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+    rm -f "$HOME/Library/LaunchAgents/$LABEL.plist"
+  fi
+  curl -fsSL "https://raw.githubusercontent.com/$REPO/$BRANCH/radarnews/public/icon-1024.png" -o "$TMP/icon-1024.png"
+  step "Creando RadarNews.app"
+  make_app "$TMP/icon-1024.png" <<LAUNCHER
+#!/bin/bash
+URL="$REMOTE"
+if [[ -d "/Applications/Google Chrome.app" || -d "\$HOME/Applications/Google Chrome.app" ]]; then
+  open -na "Google Chrome" --args --app="\$URL" --window-size=1600,1000
+else
+  open -a Safari "\$URL"
+fi
+LAUNCHER
+  echo
+  bold "Listo. El Mac ya no es el servidor: RadarNews funciona 24/7 en la nube."
+  echo "  · App:   ~/Applications/RadarNews.app (arrástrala al Dock)"
+  echo "  · Abre la app con Tailscale conectado y activa las notificaciones en Ajustes."
+  open "$APP"
+  exit 0
+fi
+
 bold "Instalando RadarNews"
 mkdir -p "$APP_HOME" "$DATA_DIR" "$LOG_DIR"
 chmod 700 "$DATA_DIR"
@@ -158,38 +228,7 @@ fi
 # ------------------------------------------------------------------ RadarNews.app
 
 step "Creando RadarNews.app con su icono"
-APP="$HOME/Applications/RadarNews.app"
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-
-ICONSET="$TMP/AppIcon.iconset"
-mkdir -p "$ICONSET"
-for s in 16 32 128 256 512; do
-  sips -z "$s" "$s" "$CODE_DIR/public/icon-1024.png" --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
-  d=$((s * 2))
-  sips -z "$d" "$d" "$CODE_DIR/public/icon-1024.png" --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
-done
-iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
-
-cat > "$APP/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleName</key><string>RadarNews</string>
-  <key>CFBundleDisplayName</key><string>RadarNews</string>
-  <key>CFBundleIdentifier</key><string>com.radarnews.launcher</string>
-  <key>CFBundleExecutable</key><string>RadarNews</string>
-  <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>LSMinimumSystemVersion</key><string>12.0</string>
-  <key>NSHighResolutionCapable</key><true/>
-</dict>
-</plist>
-PLIST
-
-cat > "$APP/Contents/MacOS/RadarNews" <<LAUNCHER
+make_app "$CODE_DIR/public/icon-1024.png" <<LAUNCHER
 #!/bin/bash
 # Abre el terminal; si el servicio no responde, lo reinicia y espera.
 URL="$URL"
@@ -203,9 +242,6 @@ else
   open -a Safari "\$URL"
 fi
 LAUNCHER
-chmod +x "$APP/Contents/MacOS/RadarNews"
-touch "$APP"
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP" 2>/dev/null || true
 
 step "Esperando al servidor"
 for _ in $(seq 1 60); do curl -fs -o /dev/null "$URL/api/settings" && break; sleep 0.5; done
