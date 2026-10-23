@@ -138,6 +138,23 @@ PLIST
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
+# ------------------------------------------------------------------ iPhone / iPad (Tailscale)
+
+TS_BIN=""
+for c in tailscale /Applications/Tailscale.app/Contents/MacOS/Tailscale /opt/homebrew/bin/tailscale /usr/local/bin/tailscale; do
+  if command -v "$c" >/dev/null 2>&1 || [[ -x "$c" ]]; then TS_BIN="$c"; break; fi
+done
+TS_URL=""
+if [[ -n "$TS_BIN" ]] && "$TS_BIN" status >/dev/null 2>&1; then
+  step "Activando acceso seguro para iPhone y iPad (Tailscale, solo tus dispositivos)"
+  if "$TS_BIN" serve --bg "$PORT" >/dev/null 2>&1; then
+    TS_DNS="$("$TS_BIN" status --json 2>/dev/null | "$NODE_BIN" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).Self.DNSName.replace(/\.$/,""))}catch{}})' || true)"
+    if [[ -n "$TS_DNS" ]]; then TS_URL="https://$TS_DNS"; fi
+  else
+    echo "  No se pudo activar. Ejecuta luego: $TS_BIN serve --bg $PORT"
+  fi
+fi
+
 # ------------------------------------------------------------------ RadarNews.app
 
 step "Creando RadarNews.app con su icono"
@@ -197,6 +214,11 @@ echo
 bold "RadarNews está listo."
 echo "  · App:          ~/Applications/RadarNews.app (arrástrala al Dock)"
 echo "  · Dirección:    $URL"
+if [[ -n "$TS_URL" ]]; then
+  echo "  · iPhone/iPad:  $TS_URL  (Ajustes › iPhone y iPad muestra el código QR)"
+else
+  echo "  · iPhone/iPad:  instala Tailscale (gratis) y vuelve a ejecutar este comando"
+fi
 echo "  · Gemini:       Ajustes (icono ⚙︎) › Inteligencia artificial › pega tu clave"
 echo "  · Logs:         $LOG_DIR/radarnews.log"
 echo "  · Desinstalar:  bash \"$APP_HOME/uninstall.sh\""
