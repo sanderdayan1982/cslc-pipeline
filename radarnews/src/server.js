@@ -1,0 +1,193 @@
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { extname, join, normalize, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { openDb } from './db.js';
+import { refreshFeed } from './refreshFeed.js';
+import { classifyCurrencies, ENGINE_LABEL } from './classifyCurrencies.js';
+import { refreshCalendar, prealertsDue } from './calendar.js';
+import { initPush, sendPush } from './push.js';
+import { llmProvider } from './llm.js';
+import { SYNC_INTERVAL_MS, CALENDAR_REFRESH_MS, SOURCES } from './config.js';
+
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const PUBLIC = join(ROOT, 'public');
+const DATA = process.env.RADARNEWS_DATA || join(ROOT, 'data');
+const PORT = Number(process.env.PORT || 3000);
+const HOST = process.env.HOST || '127.0.0.1';
+const MIME = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.webmanifest': 'application/manifest+json',
+};
+
+const db = openDb(process.env.RADARNEWS_DB || join(DATA, 'radarnews.db'));
+const vapidPublicKey = initPush(join(DATA, 'vapid.json'));
+const clients = new Set();
+let inFlight = null;
+let lastError = null;
+let nextSyncAt = Date.now();
+
+function broadcast(event, data) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const res of clients) res.write(payload);
+}
+
+async function deliver(alerts) {
+  if (!alerts.length) return;
+  broadcast('alerts', { alerts });
+  try {
+    await sendPush(db, alerts);
+  } catch (err) {
+    console.warn(`[push] ${err.message}`);
+  }
+}
+
+async function syncCalendar() {
+  try {
+    const n = await refreshCalendar(db);
+    console.log(`[calendario] ${n} eventos de la semana`);
+  } catch (err) {
+    console.warn(`[calendario] ${err.message}`);
+    db.setMeta('calendar_error', { at: new Date().toISOString(), error: err.message });
+  }
+}
+
+async function checkCalendar() {
+  const ids = prealertsDue(db).map((a) => db.insertAlert(a));
+  if (ids.length) await deliver(db.alertsSince(Math.min(...ids) - 1));
+}
+
+async function sync(trigger) {
+  if (inFlight) return inFlight;
+  broadcast('sync_start', { trigger });
+  nextSyncAt = Date.now() + SYNC_INTERVAL_MS;
+  inFlight = (async () => {
+    const lastAlertId = db.listAlerts(1)[0]?.id ?? 0;
+    try {
+      const report = await refreshFeed(db);
+      const needsBatch = report.inserted > 0 || db.latestBatch('agente').length === 0
+        || (llmProvider() && db.latestBatch(llmProvider()).length === 0);
+      const classified = needsBatch ? await classifyCurrencies(db) : null;
+      lastError = report.health.every((h) => !h.ok) ? 'Ninguna fuente respondió' : null;
+      const newAlerts = db.alertsSince(lastAlertId);
+      await deliver(newAlerts);
+      broadcast('sync_done', { error: lastError });
+      console.log(`[sync:${trigger}] +${report.inserted} titulares · ${newAlerts.length} alertas${classified ? ` · motores: ${classified.results.map((r) => r.engine).join(', ')}` : ''}`);
+      return { report, alerts: newAlerts };
+    } catch (err) {
+      lastError = err.message;
+      broadcast('sync_done', { error: lastError });
+      console.error(`[sync:${trigger}] ${err.stack}`);
+      throw err;
+    } finally {
+      inFlight = null;
+    }
+  })();
+  return inFlight;
+}
+
+function scoresByEngine() {
+  const since = new Date(Date.now() - 24 * 3600_000).toISOString();
+  const engines = ['agente', llmProvider()].filter(Boolean);
+  return engines.map((engine) => {
+    const rows = db.latestBatch(engine);
+    const history = {};
+    for (const h of db.scoreHistory(engine, since)) (history[h.currency] ||= []).push([h.snapshot_at, h.score, h.rank]);
+    return { engine, label: ENGINE_LABEL[engine] || engine, snapshot_at: rows[0]?.snapshot_at ?? null, regime_note: rows[0]?.regime_note ?? '', rows, history };
+  });
+}
+
+function state() {
+  return {
+    now: new Date().toISOString(),
+    last_sync: db.getMeta('last_sync'),
+    next_sync_at: new Date(nextSyncAt).toISOString(),
+    syncing: !!inFlight,
+    error: lastError,
+    llm: { provider: llmProvider(), label: ENGINE_LABEL[llmProvider()] ?? null, status: db.getMeta('llm_status') },
+    sources: SOURCES.map((s) => ({ id: s.id, name: s.name, type: s.type })),
+    news: db.listNews({ limit: 400 }),
+    engines: scoresByEngine(),
+    calendar: db.listCalendar(),
+    calendar_sync: db.getMeta('calendar_sync'),
+    alerts: db.listAlerts(25),
+    unread: db.unreadCount(),
+  };
+}
+
+function json(res, status, body) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(body));
+}
+
+async function readBody(req) {
+  let data = '';
+  for await (const chunk of req) {
+    data += chunk;
+    if (data.length > 16_384) throw new Error('cuerpo demasiado grande');
+  }
+  return data ? JSON.parse(data) : {};
+}
+
+async function serveStatic(res, pathname) {
+  const file = normalize(join(PUBLIC, pathname === '/' ? 'index.html' : pathname));
+  if (!file.startsWith(PUBLIC)) return json(res, 403, { error: 'prohibido' });
+  try {
+    const body = await readFile(file);
+    const headers = { 'Content-Type': MIME[extname(file)] || 'application/octet-stream' };
+    if (pathname === '/sw.js') headers['Cache-Control'] = 'no-cache';
+    res.writeHead(200, headers);
+    res.end(body);
+  } catch {
+    json(res, 404, { error: 'no encontrado' });
+  }
+}
+
+const server = createServer(async (req, res) => {
+  const { pathname } = new URL(req.url, 'http://localhost');
+  try {
+    if (req.method === 'GET' && pathname === '/api/state') return json(res, 200, state());
+    if (req.method === 'POST' && pathname === '/api/refresh') {
+      const out = await sync('manual');
+      return json(res, 200, { inserted: out.report.inserted, alerts: out.alerts.length, health: out.report.health });
+    }
+    if (req.method === 'POST' && pathname === '/api/alerts/read-all') return json(res, 200, { updated: db.markAllRead() });
+    if (req.method === 'GET' && pathname === '/api/push/key') return json(res, 200, { publicKey: vapidPublicKey });
+    if (req.method === 'POST' && pathname === '/api/push/subscribe') {
+      const sub = await readBody(req);
+      if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) return json(res, 400, { error: 'suscripción inválida' });
+      db.savePushSubscription(sub);
+      return json(res, 200, { ok: true });
+    }
+    if (req.method === 'POST' && pathname === '/api/push/test') {
+      const sent = await sendPush(db, [{ id: Date.now(), level: 'alto', title: 'Prueba de RadarNews', body: 'Las notificaciones funcionan en este dispositivo.' }]);
+      return json(res, 200, { sent });
+    }
+    if (req.method === 'GET' && pathname === '/api/spec') {
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' });
+      return res.end(await readFile(join(ROOT, 'SPEC.md')));
+    }
+    if (req.method === 'GET' && pathname === '/api/events') {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+      res.write(': conectado\n\n');
+      clients.add(res);
+      const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
+      req.on('close', () => { clearInterval(ping); clients.delete(res); });
+      return;
+    }
+    if (req.method === 'GET') return serveStatic(res, pathname);
+    json(res, 405, { error: 'método no permitido' });
+  } catch (err) {
+    json(res, 500, { error: err.message });
+  }
+});
+
+server.listen(PORT, HOST, async () => {
+  const llm = llmProvider();
+  console.log(`RadarNews en http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT} · motores: Agente${llm ? ` + ${ENGINE_LABEL[llm]}` : ' (sin GEMINI_API_KEY)'}`);
+  await syncCalendar();
+  sync('arranque').catch(() => {});
+  setInterval(() => sync('auto').catch(() => {}), SYNC_INTERVAL_MS);
+  setInterval(syncCalendar, CALENDAR_REFRESH_MS);
+  setInterval(() => checkCalendar().catch((e) => console.warn(`[calendario] ${e.message}`)), 60_000);
+});
