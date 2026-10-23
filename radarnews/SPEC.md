@@ -81,7 +81,7 @@ Filtro: fuera premios (Carl Menger), reclutamiento, divulgación. Dentro: assess
 | **InvestingLive** | `t.me/s/InvestingLiveNews` |
 | **Financial Times** | RSS global-economy, markets, currencies |
 | **Negocios TV** | `t.me/s/negociostv` (solo G8/macro/geo; se descarta política doméstica ES sin divisa) |
-| **Burbuja de Mercados** | `t.me/s/BurbujaDeMercados` (slug configurable con `RADARNEWS_BURBUJA_CHANNEL` si el canal no tiene vista pública) |
+| **Brújula de Mercados** | Telegram público `t.me/s/BrujulaDeMercados` (confirmado). Slug override: `RADARNEWS_BURBUJA_CHANNEL`. |
 
 ### 3.6 Calendario
 

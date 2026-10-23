@@ -49,7 +49,7 @@ export const WINDOWS = {
 
 export const UA = 'RadarNews/2.0 (institutional G8 terminal; +https://radarnews.local)';
 
-const BURBUJA = process.env.RADARNEWS_BURBUJA_CHANNEL || 'BurbujaDeMercados';
+const BURBUJA = process.env.RADARNEWS_BURBUJA_CHANNEL || 'BrujulaDeMercados';
 
 /** Existing production sources are preserved. NZD/CHF official + requested Telegram are added. */
 export const SOURCES = [
@@ -77,7 +77,7 @@ export const SOURCES = [
   { id: 'ft-markets', name: 'FT · Mercados', type: 'agencia', kind: 'rss', url: 'https://www.ft.com/markets?format=rss' },
   { id: 'ft-currencies', name: 'FT · Divisas', type: 'agencia', kind: 'rss', url: 'https://www.ft.com/currencies?format=rss' },
   { id: 'negociostv', name: 'Negocios TV', type: 'agencia', kind: 'telegram', url: 'https://t.me/s/negociostv' },
-  { id: 'burbuja-mercados', name: 'Burbuja de Mercados', type: 'agencia', kind: 'telegram', url: `https://t.me/s/${BURBUJA}` },
+  { id: 'burbuja-mercados', name: 'Brújula de Mercados', type: 'agencia', kind: 'telegram', url: `https://t.me/s/${BURBUJA}` },
 ];
 
 export const PRESERVED_SOURCE_IDS = [

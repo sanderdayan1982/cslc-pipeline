@@ -29,7 +29,7 @@ export async function pullSource(source, now = Date.now()) {
   try {
     const { text, finalUrl } = await fetchText(source.url);
     if (source.kind === 'telegram' && /Telegram: Contact @/.test(text) && !/tgme_widget_message_text/.test(text)) {
-      throw new Error('Canal sin vista pública. Define RADARNEWS_BURBUJA_CHANNEL con el slug público.');
+      throw new Error('Canal sin vista pública t.me/s/…; comprueba RADARNEWS_BURBUJA_CHANNEL.');
     }
     const windowMs = source.type === 'oficial' ? WINDOWS.oficialMs : WINDOWS.breakingMs;
     const raw = parseSource(source, text).filter((r) => now - Date.parse(r.published_at) <= windowMs || source.kind === 'html');

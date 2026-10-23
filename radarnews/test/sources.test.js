@@ -21,9 +21,11 @@ test('fuentes NZD y CHF oficiales pedidas están cableadas', () => {
   assert.ok(SOURCES.find((s) => s.id === 'snb-press').url.includes('/public/rss/en/pressrel'));
 });
 
-test('Telegram Negocios TV y Burbuja de Mercados se añaden sin quitar FJ', () => {
+test('Telegram Negocios TV y Brújula de Mercados se añaden sin quitar FJ', () => {
   assert.ok(SOURCES.some((s) => s.id === 'negociostv' && s.url.includes('negociostv')));
-  assert.ok(SOURCES.some((s) => s.id === 'burbuja-mercados' && s.url.includes('t.me/s/')));
+  const brujula = SOURCES.find((s) => s.id === 'burbuja-mercados');
+  assert.equal(brujula.url, 'https://t.me/s/BrujulaDeMercados');
+  assert.equal(brujula.name, 'Brújula de Mercados');
   assert.ok(SOURCES.some((s) => s.id === 'financialjuice'));
 });
 

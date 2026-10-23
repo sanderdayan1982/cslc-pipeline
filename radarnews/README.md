@@ -26,7 +26,7 @@ Variables útiles:
 | `RADARNEWS_BIND` | `127.0.0.1` | bind |
 | `RADARNEWS_DATA_DIR` | `./data` | SQLite + `settings.json` |
 | `GEMINI_API_KEY` | — | alternativa a pegar la clave en Ajustes |
-| `RADARNEWS_BURBUJA_CHANNEL` | `BurbujaDeMercados` | slug público de Telegram |
+| `RADARNEWS_BURBUJA_CHANNEL` | `BrujulaDeMercados` | slug público de Telegram |
 | `RADARNEWS_URL` | host de la petición | URL que se muestra en iPhone/iPad |
 
 ## Producción (GCE)
