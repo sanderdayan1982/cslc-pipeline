@@ -58,13 +58,33 @@ async function postJson(url, headers, body) {
   return res.json();
 }
 
+const geminiBase = () => (process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
+
+// Model metadata lookup: validates the key without spending generation quota.
+export async function testGeminiKey(key) {
+  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  try {
+    const res = await fetch(`${geminiBase()}/models/${model}`, {
+      headers: { 'x-goog-api-key': key },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.ok) return { ok: true, model };
+    const text = await res.text();
+    let detail = text.slice(0, 140);
+    try { detail = JSON.parse(text).error?.message || detail; } catch { /* non-JSON error body */ }
+    const reason = res.status === 400 || res.status === 401 || res.status === 403 ? 'Clave rechazada por Google' : `Google respondió HTTP ${res.status}`;
+    return { ok: false, error: `${reason}. ${detail}`.trim() };
+  } catch (err) {
+    return { ok: false, error: `Sin conexión con Google: ${err.message}` };
+  }
+}
+
 export async function classifyWithLlm(headlines, provider = llmProvider()) {
   const user = buildUserPrompt(headlines);
 
   if (provider === 'gemini') {
     const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-    const base = (process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
-    const data = await postJson(`${base}/models/${model}:generateContent`, {
+    const data = await postJson(`${geminiBase()}/models/${model}:generateContent`, {
       'x-goog-api-key': process.env.GEMINI_API_KEY,
     }, {
       systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },

@@ -7,7 +7,8 @@ import { refreshFeed } from './refreshFeed.js';
 import { classifyCurrencies, ENGINE_LABEL } from './classifyCurrencies.js';
 import { refreshCalendar, prealertsDue } from './calendar.js';
 import { initPush, sendPush } from './push.js';
-import { llmProvider } from './llm.js';
+import { llmProvider, testGeminiKey } from './llm.js';
+import { loadSettings, setSetting, publicSettings } from './settings.js';
 import { SYNC_INTERVAL_MS, CALENDAR_REFRESH_MS, SOURCES } from './config.js';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -20,6 +21,7 @@ const MIME = {
   '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.webmanifest': 'application/manifest+json',
 };
 
+loadSettings(join(DATA, 'settings.json'));
 const db = openDb(process.env.RADARNEWS_DB || join(DATA, 'radarnews.db'));
 const vapidPublicKey = initPush(join(DATA, 'vapid.json'));
 const clients = new Set();
@@ -105,11 +107,13 @@ function state() {
     syncing: !!inFlight,
     error: lastError,
     llm: { provider: llmProvider(), label: ENGINE_LABEL[llmProvider()] ?? null, status: db.getMeta('llm_status') },
-    sources: SOURCES.map((s) => ({ id: s.id, name: s.name, type: s.type })),
+    sources: SOURCES.map((s) => ({ id: s.id, name: s.label || s.name, type: s.type })),
     news: db.listNews({ limit: 400 }),
     engines: scoresByEngine(),
     calendar: db.listCalendar(),
     calendar_sync: db.getMeta('calendar_sync'),
+    settings: publicSettings(),
+    push_devices: db.listPushSubscriptions().length,
     alerts: db.listAlerts(25),
     unread: db.unreadCount(),
   };
@@ -162,6 +166,29 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/push/test') {
       const sent = await sendPush(db, [{ id: Date.now(), level: 'alto', title: 'Prueba de RadarNews', body: 'Las notificaciones funcionan en este dispositivo.' }]);
       return json(res, 200, { sent });
+    }
+    if (req.method === 'GET' && pathname === '/api/settings') return json(res, 200, publicSettings());
+    if (req.method === 'POST' && pathname === '/api/settings/gemini') {
+      const { key } = await readBody(req);
+      const clean = typeof key === 'string' ? key.trim() : '';
+      if (clean) {
+        if (!/^[\w-]{20,200}$/.test(clean)) return json(res, 400, { error: 'Formato de clave no válido' });
+        const test = await testGeminiKey(clean);
+        if (!test.ok) return json(res, 400, { error: test.error });
+      }
+      setSetting('GEMINI_API_KEY', clean);
+      console.log(`[ajustes] clave Gemini ${clean ? 'guardada' : 'eliminada'}`);
+      if (clean) {
+        const lastAlertId = db.listAlerts(1)[0]?.id ?? 0;
+        broadcast('sync_start', { trigger: 'ajustes' });
+        classifyCurrencies(db)
+          .then(() => deliver(db.alertsSince(lastAlertId)))
+          .catch((e) => console.warn(`[ajustes] ${e.message}`))
+          .finally(() => broadcast('sync_done', { error: lastError }));
+      } else {
+        broadcast('sync_done', { error: lastError });
+      }
+      return json(res, 200, publicSettings());
     }
     if (req.method === 'GET' && pathname === '/api/spec') {
       res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' });

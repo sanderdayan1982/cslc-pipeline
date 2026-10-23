@@ -26,9 +26,9 @@ export const SOURCES = [
   { id: 'rba', name: 'RBA', type: 'oficial', kind: 'rss', url: 'https://www.rba.gov.au/rss/rss-cb-media-releases.xml', freshnessMs: 30 * DAY, currency: 'AUD' },
   // investinglive.com blocks server requests (CloudFront 403); its public Telegram mirror is a delayed feed.
   { id: 'investinglive', name: 'InvestingLive', type: 'agencia', kind: 'telegram', url: 'https://t.me/s/InvestingLiveNews', freshnessMs: 3 * DAY },
-  { id: 'ft-economy', name: 'FT', type: 'agencia', kind: 'rss', url: 'https://www.ft.com/global-economy?format=rss', freshnessMs: 3 * DAY },
-  { id: 'ft-markets', name: 'FT', type: 'agencia', kind: 'rss', url: 'https://www.ft.com/markets?format=rss', freshnessMs: 3 * DAY },
-  { id: 'ft-currencies', name: 'FT', type: 'agencia', kind: 'rss', url: 'https://www.ft.com/currencies?format=rss', freshnessMs: 3 * DAY },
+  { id: 'ft-economy', name: 'FT', label: 'FT · Economía global', type: 'agencia', kind: 'rss', url: 'https://www.ft.com/global-economy?format=rss', freshnessMs: 3 * DAY },
+  { id: 'ft-markets', name: 'FT', label: 'FT · Mercados', type: 'agencia', kind: 'rss', url: 'https://www.ft.com/markets?format=rss', freshnessMs: 3 * DAY },
+  { id: 'ft-currencies', name: 'FT', label: 'FT · Divisas', type: 'agencia', kind: 'rss', url: 'https://www.ft.com/currencies?format=rss', freshnessMs: 3 * DAY },
 ];
 
 export const CALENDAR_URL = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
