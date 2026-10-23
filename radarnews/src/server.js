@@ -9,6 +9,7 @@ import { refreshCalendar, prealertsDue } from './calendar.js';
 import { initPush, sendPush } from './push.js';
 import { llmProvider, testGeminiKey } from './llm.js';
 import { loadSettings, setSetting, publicSettings } from './settings.js';
+import { devicesInfo } from './devices.js';
 import { SYNC_INTERVAL_MS, CALENDAR_REFRESH_MS, SOURCES } from './config.js';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -166,6 +167,10 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/push/test') {
       const sent = await sendPush(db, [{ id: Date.now(), level: 'alto', title: 'Prueba de RadarNews', body: 'Las notificaciones funcionan en este dispositivo.' }]);
       return json(res, 200, { sent });
+    }
+    if (req.method === 'GET' && pathname === '/api/devices') {
+      const proto = req.headers['x-forwarded-proto'] || (req.socket.encrypted ? 'https' : 'http');
+      return json(res, 200, await devicesInfo(PORT, `${proto}://${req.headers.host}`));
     }
     if (req.method === 'GET' && pathname === '/api/settings') return json(res, 200, publicSettings());
     if (req.method === 'POST' && pathname === '/api/settings/gemini') {
