@@ -38,3 +38,19 @@ test('salida JSON se rellena a 8 divisas y anula scores sin citas', () => {
 test('instrucciones prohíben long/short', () => {
   assert.match(GEMINI_JSON_INSTRUCTIONS + MOSLER_RULES, /long/);
 });
+
+test('rationale de Gemini se limpia de hashes fingerprint', () => {
+  const news = [{ fingerprint: '322b654e2a51299ea878b062612715314913c08', title: 'SECO raises growth', currencies: ['CHF'] }];
+  const parsed = parseModelJson(JSON.stringify({
+    rows: [{
+      currency: 'CHF',
+      score: 25,
+      drivers: ['Revisión al alza'],
+      rationale: 'SECO [322b654e2a51299ea878b062612715314913c08] eleva previsión.',
+      citations: ['322b654e2a51299ea878b062612715314913c08'],
+    }],
+  }), news);
+  const chf = parsed.rows.find((r) => r.currency === 'CHF');
+  assert.doesNotMatch(chf.rationale, /322b654e2a/);
+  assert.match(chf.rationale, /SECO/);
+});

@@ -343,6 +343,25 @@ function renderEngineTabs() {
 
 const driversList = (drivers) => `<ul>${drivers.map((x) => `<li>${esc(x)}</li>`).join('') || '<li>Sin catalizadores</li>'}</ul>`;
 
+function cleanRationale(s) {
+  return String(s || '')
+    .replace(/\[[0-9a-f]{7,40}\]/gi, '')
+    .replace(/\b[0-9a-f]{32,40}\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([.,;:])/g, '$1')
+    .trim();
+}
+
+function engineChipsHtml(view, r) {
+  if (!(view.consensus && !view.degraded && r.perEngine)) return '';
+  return r.perEngine.filter((p) => p.row).map((p) => {
+    const sc = isNoEvidence(p.row) ? 0 : p.row.score;
+    const cls = sc > 0 ? 'pos' : sc < 0 ? 'neg' : 'zero';
+    const short = p.label === 'Agente' ? 'Ag' : p.label === 'Gemini' ? 'Ge' : p.label.slice(0, 2);
+    return `<span class="eng-chip ${cls}" title="${esc(p.label)} ${signed(sc)}">${short} ${signed(sc)}</span>`;
+  }).join('');
+}
+
 function renderBoard() {
   renderEngineTabs();
   $('#gemini-hint').hidden = !!ui.data.settings?.gemini?.configured || localStorage.getItem('rn-hide-gemini-hint') === '1';
@@ -388,8 +407,8 @@ function renderBoard() {
     }
     const markers = (view.consensus && !view.degraded) ? r.perEngine.filter((p) => p.row).map((p) => `<span class="other" title="${esc(p.label)}: ${signed(isNoEvidence(p.row) ? 0 : p.row.score)}" style="left:calc(${50 + (isNoEvidence(p.row) ? 0 : p.row.score) / 2}% - 1px)"></span>`).join('') : '';
     const detail = (view.consensus && !view.degraded)
-      ? r.perEngine.map((p) => (p.row ? `<h4>${esc(p.label)} · ${signed(isNoEvidence(p.row) ? 0 : p.row.score)} · ${isNoEvidence(p.row) ? 'N/D' : pressureLabel(p.row)} (Est ${signed(isNoEvidence(p.row) ? 0 : (p.row.structural ?? p.row.score))} | Imp 3h ${signed(isNoEvidence(p.row) ? 0 : (p.row.impulse ?? 0))})</h4>${driversList(p.row.drivers)}<div>${esc(p.row.rationale)}</div>` : '')).join('')
-      : `${driversList(r.drivers)}<div>${esc(r.rationale || '')}</div>`;
+      ? r.perEngine.map((p) => (p.row ? `<h4>${esc(p.label)} · ${signed(isNoEvidence(p.row) ? 0 : p.row.score)} · ${isNoEvidence(p.row) ? 'N/D' : pressureLabel(p.row)} (Est ${signed(isNoEvidence(p.row) ? 0 : (p.row.structural ?? p.row.score))} | Imp 3h ${signed(isNoEvidence(p.row) ? 0 : (p.row.impulse ?? 0))})</h4>${driversList(p.row.drivers)}<div>${esc(cleanRationale(p.row.rationale))}</div>` : '')).join('')
+      : `${driversList(r.drivers)}<div>${esc(cleanRationale(r.rationale || ''))}</div>`;
     const impCls = r.impulse > 0 ? 'pos' : r.impulse < 0 ? 'neg' : '';
     const setupMeta = SETUP_META[r.setup];
     const setupHtml = setupMeta ? `<span class="setup-pill ${r.setup}" title="${setupMeta.title}">${setupMeta.label}</span>` : '';
@@ -397,17 +416,22 @@ function renderBoard() {
     const fxHtml = typeof bPct === 'number' && bPct !== 0
       ? `<span class="fx-pct ${bPct > 0 ? 'up' : 'down'}" title="${spotTitle}">${spotLabel} ${bPct > 0 ? '+' : ''}${bPct.toFixed(2)}%</span>`
       : '';
-    const biasText = r.noEvidence ? 'N/D · Sin evidencia' : pressureLabel(r);
+    const biasText = r.noEvidence ? 'N/D' : pressureLabel(r);
     const drvText = r.drivers[0] || 'Sin catalizadores claros';
     const rankLabel = r.noEvidence ? '<span class="rank" title="Sin catalizadores medidos en el ciclo">—</span>' : `<span class="rank">${r.rank}</span>`;
-    const divBadge = r.diverge ? `<span class="div-flag" title="Discrepancia entre motores: ${esc(r.divSummary || '')}">≠ ${esc(r.divSummary || '')}</span>` : '';
-    return `<li class="ccy-row ${ui.open.has(r.currency) ? 'open' : ''}" data-ccy="${r.currency}">
+    const divBadge = r.diverge ? `<span class="div-flag" title="Discrepancia entre motores: ${esc(r.divSummary || '')}">≠</span>` : '';
+    return `<li class="ccy-row ${ui.open.has(r.currency) ? 'open' : ''} ${r.noEvidence ? 'nd' : ''}" data-ccy="${r.currency}">
       <div class="ccy-line">
         ${rankLabel}<span class="code">${r.currency}</span>
-        <div class="bar"><span class="mid"></span><span class="fill ${cls}" style="width:${w}%"></span>${markers}</div>
         <span class="score ${cls}">${signed(r.score)}</span>${delta}
       </div>
-      <div class="ccy-sub"><span class="bias ${r.bias}" title="${r.noEvidence ? 'Sin catalizadores medidos en la ventana actual' : ''}">${biasText}</span><span class="vec-pill" title="Impulso táctico últimas 3 horas">Imp 3h <b class="${impCls}">${signed(r.impulse ?? 0)}</b></span>${setupHtml}${fxHtml}${divBadge}<span class="driver" title="${esc(drvText)}">${esc(drvText)}</span></div>
+      <div class="bar" aria-hidden="true"><span class="mid"></span><span class="fill ${cls}" style="width:${w}%"></span>${markers}</div>
+      <div class="ccy-meta">
+        <span class="bias ${r.noEvidence ? 'nd' : r.bias}" title="${r.noEvidence ? 'Sin catalizadores medidos en la ventana actual' : ''}">${biasText}</span>
+        <span class="vec-pill" title="Impulso táctico últimas 3 horas">Imp 3h <b class="${impCls}">${signed(r.impulse ?? 0)}</b></span>
+        ${setupHtml}${fxHtml}${engineChipsHtml(view, r)}${divBadge}
+      </div>
+      <p class="driver" title="${esc(drvText)}">${esc(drvText)}</p>
       <div class="ccy-detail">${detail}${sparkline(r.series)}</div>
     </li>`;
   }).join('');

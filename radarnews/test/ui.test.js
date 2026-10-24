@@ -24,3 +24,14 @@ test('ficha y ajustes hablan de narrativa Mosler, no de operar', () => {
 test('modelo anunciado es gemini-3.8-flash', () => {
   assert.equal(GEMINI_MODEL, 'gemini-3.8-flash');
 });
+
+test('ranking no aprieta meta y driver en una sola línea nowrap', () => {
+  assert.match(app, /class="ccy-meta"/);
+  assert.match(app, /class="driver"/);
+  assert.match(app, /function cleanRationale/);
+  assert.doesNotMatch(app, /ccy-sub/);
+  const css = readFileSync(new URL('../public/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /ccy-meta/);
+  assert.match(css, /-webkit-line-clamp:\s*2/);
+  assert.doesNotMatch(css, /\.ccy-sub \.driver \{[^}]*white-space:\s*nowrap/);
+});

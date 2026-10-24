@@ -9,12 +9,13 @@ export const GEMINI_JSON_INSTRUCTIONS = `Devuelve SOLO JSON:
       "currency": "USD",
       "score": 0,
       "drivers": ["..."],
-      "rationale": "comentario propio del motor, citando fingerprints",
+      "rationale": "comentario propio del motor, citando el TITULAR literal (nunca el hash)",
       "citations": ["fingerprint"]
     }
   ]
 }
-Ocho divisas. Prohibido long/short/vía libre operativa/sesgo largo.`;
+Ocho divisas. Prohibido long/short/vía libre operativa/sesgo largo.
+El campo citations lleva fingerprints. El rationale es para el usuario: cita titulares, no hashes.`;
 
 export function buildPrompt(news) {
   const lines = news.slice(0, 80).map((n) => (
@@ -52,7 +53,12 @@ export function parseModelJson(text, news) {
       bias: biasFor(score),
       drivers,
       rationale: hasCite
-        ? String(r.rationale || '').slice(0, 600)
+        ? String(r.rationale || '')
+          .replace(/\[[0-9a-f]{7,40}\]/gi, '')
+          .replace(/\b[0-9a-f]{32,40}\b/gi, '')
+          .replace(/\s{2,}/g, ' ')
+          .trim()
+          .slice(0, 600)
         : 'Sin titulares directos para esta divisa en la ventana actual.',
       noEvidence: !hasCite || isNoEvidence({ drivers, score }),
       engine: 'gemini',
