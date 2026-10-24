@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0d11" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="RadarNews" />
+  <title>RadarNews</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="/icon.svg" alt="" class="brand-icon" width="30" height="30" />
+      <div class="brand-text">
+        <span class="name">RadarNews</span>
+        <span class="sub">Macro FX · Fuerza narrativa</span>
+      </div>
+    </div>
+
+    <div id="sessions" class="sessions" aria-label="Sesiones de mercado"></div>
+
+    <div class="actions">
+      <button id="live" class="live" title="Estado de la sincronización">
+        <span class="dot"></span><span id="live-text">Conectando…</span>
+      </button>
+      <div class="bell-wrap">
+        <button id="bell" class="icon-btn" aria-label="Alertas" aria-expanded="false" title="Alertas (A)">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span id="badge" class="badge" hidden>0</span>
+        </button>
+        <section id="alerts-panel" class="alerts-panel" hidden>
+          <div class="alerts-head">
+            <strong>Alertas</strong>
+            <button id="read-all" class="link">Marcar todas leídas</button>
+          </div>
+          <div id="notif-hint" class="notif-hint" hidden>
+            <span>Recibe las alertas aunque la app esté cerrada.</span>
+            <button id="notif-hint-btn" class="btn small primary">Activar</button>
+          </div>
+          <ul id="alerts-list" class="alerts-list"></ul>
+        </section>
+      </div>
+      <button id="refresh" class="icon-btn" aria-label="Actualizar" title="Actualizar ahora (R)">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+      </button>
+      <button id="settings-btn" class="icon-btn" aria-label="Ajustes" title="Ajustes (,)">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div id="error-band" class="error-band" hidden></div>
+
+  <main class="layout">
+    <section class="panel tape" data-view="tape">
+      <div class="panel-head">
+        <h2>Cinta</h2>
+        <div class="seg" id="filters" role="tablist">
+          <button data-filter="all" class="active">Todo</button>
+          <button data-filter="breaking">Breaking</button>
+          <button data-filter="dato_macro">Datos</button>
+          <button data-filter="banco_central">Bancos</button>
+          <button data-filter="geopolitica">Geo</button>
+        </div>
+        <select id="ccy-filter" class="select" aria-label="Filtrar por divisa"></select>
+      </div>
+      <div id="tape" class="tape-body">
+        <div class="state-msg"><span class="spinner"></span>Cargando titulares…</div>
+      </div>
+    </section>
+
+    <section class="panel board" data-view="board">
+      <div class="panel-head">
+        <h2>Ranking de divisas</h2>
+        <div class="seg" id="engine-tabs"></div>
+      </div>
+      <div class="board-meta"><span id="batch-time"></span><span id="divergence"></span></div>
+      <div id="gemini-hint" class="hint" hidden>
+        <span>Activa Gemini (gratis) como segundo motor de análisis.</span>
+        <button class="btn small" data-open-settings="ai">Configurar</button>
+      </div>
+      <ol id="board" class="board-list"></ol>
+      <div id="regime" class="regime" hidden></div>
+
+      <div class="section-title">Cruces con mayor diferencial</div>
+      <div id="top-pairs" class="top-pairs"></div>
+      <details class="matrix-wrap">
+        <summary>Ver matriz completa</summary>
+        <div id="matrix" class="matrix"></div>
+        <p class="footnote">Diferencial narrativo fila − columna. Calculado solo con titulares, nunca con precios.</p>
+      </details>
+    </section>
+
+    <section class="panel agenda" data-view="agenda">
+      <div class="panel-head">
+        <h2>Agenda de la semana</h2>
+        <div class="seg" id="cal-filter">
+          <button data-impact="High">Alto</button>
+          <button data-impact="Medium" class="active">Alto + Medio</button>
+          <button data-impact="all">Todo</button>
+        </div>
+      </div>
+      <div id="next-event" class="next-event" hidden></div>
+      <div id="calendar" class="calendar-body"></div>
+    </section>
+  </main>
+
+  <nav class="tabbar" id="tabbar" aria-label="Secciones">
+    <button data-view="board"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h10M4 12h16M4 18h7"/></svg><span>Ranking</span></button>
+    <button data-view="tape"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg><span>Cinta</span></button>
+    <button data-view="agenda"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span>Agenda</span></button>
+    <button data-view="alerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span>Alertas</span><i id="tab-badge" class="badge" hidden>0</i></button>
+  </nav>
+
+  <footer class="statusbar">
+    <button id="health" class="health" data-open-settings="sources" title="Ver estado de las fuentes"></button>
+    <span id="engines-status" class="engines-status"></span>
+    <span class="shortcuts">R actualizar · A alertas · 1–5 filtros · , ajustes</span>
+  </footer>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <dialog id="settings" class="modal">
+    <div class="modal-head">
+      <strong>Ajustes</strong>
+      <button class="icon-btn" data-close aria-label="Cerrar">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <nav class="tabs" id="settings-tabs">
+        <button data-tab="ai" class="active">Inteligencia artificial</button>
+        <button data-tab="notif">Notificaciones</button>
+        <button data-tab="devices">iPhone y iPad</button>
+        <button data-tab="sources">Fuentes</button>
+        <button data-tab="about">Acerca de</button>
+      </nav>
+
+      <section class="tab" data-pane="ai">
+        <h3>Motores de clasificación</h3>
+        <p class="muted">El <b>Agente</b> por reglas funciona siempre. <b>Gemini</b> añade un segundo análisis y el Consenso combina ambos. Los dos alertan cuando cambia el ranking.</p>
+        <div class="card">
+          <div class="card-row">
+            <div>
+              <div class="card-title">Gemini</div>
+              <div id="gemini-state" class="muted">—</div>
+            </div>
+            <span id="gemini-pill" class="pill">—</span>
+          </div>
+          <form id="gemini-form" class="key-form" autocomplete="off">
+            <input id="gemini-key" type="password" placeholder="Pega aquí tu clave de Google AI Studio (AIza…)" spellcheck="false" />
+            <button type="submit" class="btn primary" id="gemini-save">Probar y guardar</button>
+          </form>
+          <div id="gemini-msg" class="form-msg" hidden></div>
+          <div class="card-foot">
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Obtener clave gratuita en Google AI Studio ↗</a>
+            <button id="gemini-remove" class="link danger" hidden>Eliminar clave</button>
+          </div>
+        </div>
+        <p class="muted small">La clave se guarda solo en este Mac (<code>data/settings.json</code>, permisos 600) y nunca se muestra completa.</p>
+      </section>
+
+      <section class="tab" data-pane="notif" hidden>
+        <h3>Notificaciones</h3>
+        <p class="muted">Solo en la app y push. Nunca por correo.</p>
+        <div id="ios-install" class="hint ios" hidden>
+          <span>En iPhone y iPad las notificaciones exigen abrir RadarNews desde la pantalla de inicio: pulsa <b>Compartir</b> <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v8h14v-8"/></svg> y luego <b>Añadir a pantalla de inicio</b>.</span>
+        </div>
+        <div class="card">
+          <div class="card-row">
+            <div>
+              <div class="card-title">Este dispositivo</div>
+              <div id="notif-state" class="muted">—</div>
+            </div>
+            <button id="notif-btn" class="btn primary">Activar</button>
+          </div>
+        </div>
+        <h4>Dispositivos que reciben alertas</h4>
+        <p class="muted small">Cada alerta llega a todos a la vez. Actívalas en cada iPhone, iPad y Mac.</p>
+        <ul id="device-list" class="device-list"></ul>
+        <div class="about-actions"><button id="notif-test" class="btn">Enviar prueba a todos</button> <span id="test-result" class="muted small"></span></div>
+        <h4>Qué genera una alerta</h4>
+        <ul class="rules">
+          <li><b>Breaking</b> de impacto alto o crítico</li>
+          <li><b>Dato macro</b> publicado (agrupado por dato, sin duplicados)</li>
+          <li><b>Agenda</b>: aviso 15 minutos antes de cada dato de alto impacto</li>
+          <li><b>Cambio de ranking</b> detectado por el Agente o por Gemini</li>
+          <li><b>Cambio de régimen</b> de una divisa (alcista, neutral, bajista)</li>
+        </ul>
+      </section>
+
+      <section class="tab" data-pane="devices" hidden>
+        <h3>iPhone y iPad</h3>
+        <p class="muted">Todos tus dispositivos se conectan al mismo servidor RadarNews (en la nube o en el Mac) mediante una conexión segura y privada con Tailscale: solo tus dispositivos pueden entrar.</p>
+        <div id="devices-body" class="devices"><span class="spinner"></span></div>
+      </section>
+
+      <section class="tab" data-pane="sources" hidden>
+        <h3>Fuentes</h3>
+        <p class="muted">Estado en la última sincronización. Se consultan cada 5 minutos.</p>
+        <table class="sources-table">
+          <thead><tr><th>Fuente</th><th>Tipo</th><th>Relevantes</th><th>Nuevos</th><th>Estado</th></tr></thead>
+          <tbody id="sources-body"></tbody>
+        </table>
+      </section>
+
+      <section class="tab" data-pane="about" hidden>
+        <h3>RadarNews</h3>
+        <p class="muted">Terminal privado de noticias macro y FX. Puntúa de −100 a +100 la fuerza narrativa de USD, EUR, GBP, JPY, CHF, CAD, AUD y NZD solo a partir de noticias.</p>
+        <div class="about-actions">
+          <button id="spec-btn" class="btn">Leer la especificación</button>
+        </div>
+        <h4>Atajos de teclado</h4>
+        <table class="keys">
+          <tr><td><kbd>R</kbd></td><td>Actualizar ahora</td></tr>
+          <tr><td><kbd>A</kbd></td><td>Abrir alertas</td></tr>
+          <tr><td><kbd>1</kbd>–<kbd>5</kbd></td><td>Filtros de la cinta</td></tr>
+          <tr><td><kbd>,</kbd></td><td>Ajustes</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>Cerrar</td></tr>
+        </table>
+      </section>
+    </div>
+  </dialog>
+
+  <dialog id="spec-dialog" class="modal wide">
+    <div class="modal-head">
+      <strong>Especificación del producto</strong>
+      <button class="icon-btn" data-close aria-label="Cerrar">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <article id="spec-body" class="spec-body">Cargando…</article>
+  </dialog>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

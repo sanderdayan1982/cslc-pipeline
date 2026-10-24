@@ -1,0 +1,22 @@
+{
+  "name": "radarnews",
+  "version": "1.0.0",
+  "description": "Terminal de noticias financieras: fuerza narrativa de 8 divisas a partir de titulares",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env --no-warnings=ExperimentalWarning src/server.js",
+    "refresh": "node --env-file-if-exists=.env --no-warnings=ExperimentalWarning src/cli.js",
+    "test": "node --no-warnings=ExperimentalWarning --test test/*.test.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "fast-xml-parser": "^4.5.0",
+    "qrcode": "^1.5.4",
+    "web-push": "^3.6.7"
+  },
+  "private": true
+}
