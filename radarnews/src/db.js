@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from './config.js';
+import { dedupeNews, fingerprint, normalizeStoredNews, surpriseZ } from './enrich.js';
 
 export function openDb(file = join(DATA_DIR, 'radarnews.db')) {
   mkdirSync(DATA_DIR, { recursive: true });
@@ -106,19 +107,20 @@ export function insertNews(db, item) {
 }
 
 export function listNews(db, limit = 250) {
-  return db.prepare('SELECT * FROM news ORDER BY published_at DESC, id DESC LIMIT ?').all(limit).map(mapNews);
+  return dedupeNews(db.prepare('SELECT * FROM news ORDER BY published_at DESC, id DESC LIMIT ?').all(limit).map(mapNews));
 }
 
 export function recentNews(db, sinceIso) {
-  return db.prepare('SELECT * FROM news WHERE published_at >= ? ORDER BY published_at DESC').all(sinceIso).map(mapNews);
+  return dedupeNews(db.prepare('SELECT * FROM news WHERE published_at >= ? ORDER BY published_at DESC').all(sinceIso).map(mapNews));
 }
 
 function mapNews(r) {
-  return {
+  return normalizeStoredNews({
     ...r,
     currencies: parseJson(r.currencies, []),
     alert_created: !!r.alert_created,
-  };
+    captured_at: r.created_at,
+  });
 }
 
 export function saveScores(db, engine, rows, batchId, snapshotAt, regimeNote = '') {
@@ -129,7 +131,7 @@ export function saveScores(db, engine, rows, batchId, snapshotAt, regimeNote = '
     stmt.run(
       r.currency, r.score, r.bias, json(r.drivers), r.rationale,
       r.rank, batchId, regimeNote, engine, snapshotAt,
-      r.structural ?? r.score, r.impulse ?? 0, r.setup || '',
+      r.structural ?? r.score, r.impulse == null ? null : r.impulse, r.setup || '',
     );
   }
 }
@@ -173,9 +175,75 @@ export function markAlertsRead(db) {
 export function upsertCalendar(db, events, weekStart) {
   const stmt = db.prepare(`INSERT INTO calendar (id, title, currency, event_at, impact, forecast, previous, actual, news_item_id, prealerted, week_start)
     VALUES (?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET title=excluded.title, forecast=COALESCE(excluded.forecast, forecast), previous=COALESCE(excluded.previous, previous), impact=excluded.impact, event_at=excluded.event_at, week_start=excluded.week_start`);
+    ON CONFLICT(id) DO UPDATE SET
+      title=excluded.title,
+      forecast=COALESCE(excluded.forecast, forecast),
+      previous=COALESCE(excluded.previous, previous),
+      actual=COALESCE(excluded.actual, actual),
+      news_item_id=COALESCE(excluded.news_item_id, news_item_id),
+      impact=excluded.impact,
+      event_at=excluded.event_at,
+      week_start=excluded.week_start`);
   for (const e of events) {
     stmt.run(e.id, e.title, e.currency, e.event_at, e.impact, e.forecast, e.previous, e.actual, e.news_item_id, e.prealerted || 0, weekStart);
+  }
+}
+
+export function persistCalendarLinks(db, events) {
+  const stmt = db.prepare(`UPDATE calendar SET
+    actual=COALESCE(?, actual),
+    news_item_id=COALESCE(?, news_item_id)
+    WHERE id=?`);
+  for (const e of events) {
+    stmt.run(e.actual || null, e.news_item_id || null, e.id);
+  }
+}
+
+export function persistNewsLinks(db, news) {
+  const stmt = db.prepare(`UPDATE news SET calendar_title=COALESCE(?, calendar_title), actual=COALESCE(?, actual), forecast=COALESCE(?, forecast), previous=COALESCE(?, previous) WHERE id=?`);
+  for (const n of news) {
+    if (!n.id) continue;
+    stmt.run(n.calendar_title || null, n.actual || null, n.forecast || null, n.previous || null, n.id);
+  }
+}
+
+export function repairPersistedNews(db) {
+  const rows = db.prepare('SELECT * FROM news ORDER BY id ASC').all();
+  const upd = db.prepare(`UPDATE news SET title=?, url=?, published_at=?, currencies=?, category=?, actual=COALESCE(?, actual), forecast=COALESCE(?, forecast), previous=COALESCE(?, previous), fingerprint=?, z=?, absZ=?, impact=? WHERE id=?`);
+  const merge = db.prepare(`UPDATE news SET actual=COALESCE(actual, ?), forecast=COALESCE(forecast, ?), previous=COALESCE(previous, ?) WHERE id=?`);
+  const del = db.prepare('DELETE FROM news WHERE id=?');
+  const byFp = new Map();
+  db.exec('BEGIN');
+  try {
+    for (const raw of rows) {
+      const n = mapNews(raw);
+      const z = surpriseZ(n);
+      const fp = fingerprint(n.title, n.url);
+      if (byFp.has(fp)) {
+        merge.run(n.actual, n.forecast, n.previous, byFp.get(fp));
+        del.run(n.id);
+        continue;
+      }
+      try {
+        upd.run(
+          n.title, n.url, n.published_at, json(n.currencies), n.category,
+          n.actual, n.forecast, n.previous, fp, z.z, z.absZ, n.impact ?? raw.impact, n.id,
+        );
+        byFp.set(fp, n.id);
+      } catch {
+        const keep = db.prepare('SELECT id FROM news WHERE fingerprint=?').get(fp);
+        if (keep && keep.id !== n.id) {
+          merge.run(n.actual, n.forecast, n.previous, keep.id);
+          del.run(n.id);
+        } else {
+          byFp.set(fp, n.id);
+        }
+      }
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
   }
 }
 

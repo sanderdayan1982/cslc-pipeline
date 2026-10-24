@@ -19,6 +19,9 @@ export const BIAS_LABEL = {
   neutral: 'Neutral',
 };
 
+/** Score cutoff for Soporte / Presión labels. Not a Mosler constant — calibrated for G8 tape. */
+export const BIAS_THRESHOLD = 12;
+
 export const CHANNEL_LABEL = {
   DATA_REAL: 'Dato real',
   RELATIVE_PRICE: 'Precio relativo',

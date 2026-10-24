@@ -14,14 +14,16 @@ const SESSIONS = [
 ];
 const INVERTED = /unemployment|jobless|claims/i;
 const BIAS_LABEL = { alcista: 'Soporte', bajista: 'Presión', neutral: 'Neutral' };
+const BIAS_THRESHOLD = 12;
 const pressureLabel = (r) => (r.noEvidence ? 'N/D' : (BIAS_LABEL[r.bias] || 'Neutral'));
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (v) => { const m = /-?\d+(?:\.\d+)?/.exec(String(v ?? '').replace(/,/g, '')); return m ? Number(m[0]) : null; };
-const biasFor = (s) => (s > 20 ? 'alcista' : s < -20 ? 'bajista' : 'neutral');
+const biasFor = (s) => (s > BIAS_THRESHOLD ? 'alcista' : s < -BIAS_THRESHOLD ? 'bajista' : 'neutral');
 const signed = (n) => (n > 0 ? `+${n}` : `${n}`);
+const fmtImpulse = (v) => (v == null ? 'n/d' : signed(v));
 
 const ui = {
   data: null,
@@ -109,14 +111,33 @@ function setSyncing(on) {
   renderLive();
 }
 
+function liveCoverage() {
+  const liveCalEvents = (ui.data?.calendar || []).filter((e) => e.impact !== 'Holiday' && (e.forecast || e.previous) && Date.parse(e.event_at) >= TAPE_CAPTURE_START_MS && Date.parse(e.event_at) < Date.now());
+  const matched = liveCalEvents.filter((e) => e.actual).length;
+  const total = liveCalEvents.length;
+  return { total, matched, degraded: total >= 4 && matched / total < 0.5 };
+}
+
 function renderStatus() {
   const d = ui.data;
   const band = $('#error-band');
   const last = d.last_sync?.finished_at;
   const stale = last && Date.now() - Date.parse(last) > 15 * 60_000 && !d.syncing;
-  band.hidden = !d.error && !stale;
-  band.textContent = d.error ? `Error de sincronización: ${d.error}`
-    : stale ? `Sin sincronizar desde ${fmtTime(last)}. ${d.platform === 'darwin' ? '¿Está el Mac en reposo o apagado? Las alertas se reanudan al despertarlo.' : 'El servidor no responde a las fuentes; se reintenta solo.'}` : '';
+  const cov = liveCoverage();
+  band.classList.toggle('warn', !d.error && !stale && cov.degraded);
+  if (d.error) {
+    band.hidden = false;
+    band.textContent = `Error de sincronización: ${d.error}`;
+  } else if (stale) {
+    band.hidden = false;
+    band.textContent = `Sin sincronizar desde ${fmtTime(last)}. ${d.platform === 'darwin' ? '¿Está el Mac en reposo o apagado? Las alertas se reanudan al despertarlo.' : 'El servidor no responde a las fuentes; se reintenta solo.'}`;
+  } else if (cov.degraded) {
+    band.hidden = false;
+    band.textContent = `Datos degradados: cobertura Act ${cov.matched}/${cov.total}. Fuentes operativas no equivalen a integridad; el ranking opera con evidencia incompleta.`;
+  } else {
+    band.hidden = true;
+    band.textContent = '';
+  }
   setSyncing(d.syncing);
 }
 
@@ -194,8 +215,13 @@ function renderTape() {
       macroHtml(n),
       calChip,
     ].filter(Boolean).join('');
+    const capAt = n.captured_at || n.created_at;
+    const dateDrift = capAt && Math.abs(Date.parse(n.published_at) - Date.parse(capAt)) > 2 * 3600_000;
+    const timeTip = dateDrift
+      ? `Publicado ${new Date(n.published_at).toISOString()} · Capturado ${capAt}`
+      : '';
     return `${sep}<div class="row ${cls}">
-      <div class="time">${fmtTime(n.published_at)}</div>
+      <div class="time" title="${esc(timeTip)}">${fmtTime(n.published_at)}</div>
       <div class="headline"><a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a><div class="meta">${meta}</div></div>
     </div>`;
   }).join('');
@@ -211,6 +237,7 @@ const SETUP_META = {
 };
 
 function calcSetup(structural, impulse) {
+  if (impulse == null) return '';
   if (Math.abs(structural) >= 18 && Math.abs(impulse) >= 12 && Math.sign(structural) === Math.sign(impulse)) return 'confluencia';
   if (Math.abs(structural) >= 18 && Math.abs(impulse) >= 15 && Math.sign(structural) !== Math.sign(impulse)) return 'giro';
   if (Math.abs(structural) < 18 && Math.abs(impulse) >= 18) return 'impulso';
@@ -228,7 +255,7 @@ function sortAndRankWithEvidence(rawRows) {
   let rank = 1;
   return [
     ...measured.map((r) => ({ ...r, rank: rank++, noEvidence: false })),
-    ...unmeasured.map((r) => ({ ...r, score: 0, structural: 0, impulse: 0, bias: 'neutral', rank: null, noEvidence: true })),
+    ...unmeasured.map((r) => ({ ...r, score: 0, structural: 0, impulse: null, bias: 'neutral', rank: null, noEvidence: true })),
   ];
 }
 
@@ -260,7 +287,7 @@ function engineView(engineId) {
     const rawRows = e.rows.map((r) => {
       const h = e.history[r.currency] || [];
       const structural = r.structural ?? r.score;
-      const impulse = r.impulse ?? 0;
+      const impulse = r.impulse == null ? null : r.impulse;
       return { ...r, structural, impulse, setup: r.setup || calcSetup(structural, impulse), prevRank: h.length > 1 ? h[h.length - 2][2] : null, series: h.map((p) => p[1]) };
     });
     const rows = sortAndRankWithEvidence(rawRows);
@@ -300,7 +327,10 @@ function engineView(engineId) {
     const anyNoEv = parts.some((p) => isNoEvidence(p));
     const score = allNoEv ? 0 : Math.round(parts.reduce((s, r) => s + (isNoEvidence(r) ? 0 : r.score), 0) / parts.length);
     const structural = allNoEv ? 0 : Math.round(parts.reduce((s, r) => s + (isNoEvidence(r) ? 0 : (r.structural ?? r.score)), 0) / parts.length);
-    const impulse = allNoEv ? 0 : Math.round(parts.reduce((s, r) => s + (isNoEvidence(r) ? 0 : (r.impulse ?? 0)), 0) / parts.length);
+    const impulseParts = parts.filter((p) => !isNoEvidence(p) && p.impulse != null);
+    const impulse = allNoEv || !impulseParts.length
+      ? null
+      : Math.round(impulseParts.reduce((s, r) => s + r.impulse, 0) / impulseParts.length);
     const diverge = parts.length > 1 && !allNoEv && (anyNoEv || new Set(parts.map((p) => p.bias)).size > 1 || Math.abs(parts[0].score - parts[1].score) >= 35);
     const setup = (anyNoEv || diverge) ? '' : calcSetup(structural, impulse);
     const perEngine = engines.map((e, i) => ({ label: e.label, row: scoreMaps[i].get(c) }));
@@ -386,6 +416,10 @@ function renderBoard() {
   } else {
     $('#batch-time').textContent = view.snapshot_at ? `${view.label} · actualizado ${fmtTime(view.snapshot_at)}${ui.engine === 'gemini' && llmErr ? ' (en caché)' : ''}` : '';
   }
+  const cov = liveCoverage();
+  if (cov.degraded) {
+    $('#batch-time').textContent = `${$('#batch-time').textContent} · datos degradados ${cov.matched}/${cov.total} Act`.replace(/^ · /, '');
+  }
   const div = view.rows.filter((r) => r.diverge).map((r) => r.currency);
   $('#divergence').innerHTML = view.degraded
     ? `<span class="div-flag" title="Gemini no disponible o desfasado; operando exclusivamente con el motor cuantitativo Agente">Modo degradado: solo Agente</span>`
@@ -407,9 +441,9 @@ function renderBoard() {
     }
     const markers = (view.consensus && !view.degraded) ? r.perEngine.filter((p) => p.row).map((p) => `<span class="other" title="${esc(p.label)}: ${signed(isNoEvidence(p.row) ? 0 : p.row.score)}" style="left:calc(${50 + (isNoEvidence(p.row) ? 0 : p.row.score) / 2}% - 1px)"></span>`).join('') : '';
     const detail = (view.consensus && !view.degraded)
-      ? r.perEngine.map((p) => (p.row ? `<h4>${esc(p.label)} · ${signed(isNoEvidence(p.row) ? 0 : p.row.score)} · ${isNoEvidence(p.row) ? 'N/D' : pressureLabel(p.row)} (Est ${signed(isNoEvidence(p.row) ? 0 : (p.row.structural ?? p.row.score))} | Imp 3h ${signed(isNoEvidence(p.row) ? 0 : (p.row.impulse ?? 0))})</h4>${driversList(p.row.drivers)}<div>${esc(cleanRationale(p.row.rationale))}</div>` : '')).join('')
+      ? r.perEngine.map((p) => (p.row ? `<h4>${esc(p.label)} · ${signed(isNoEvidence(p.row) ? 0 : p.row.score)} · ${isNoEvidence(p.row) ? 'N/D' : pressureLabel(p.row)} (Est ${signed(isNoEvidence(p.row) ? 0 : (p.row.structural ?? p.row.score))} | Imp 3h ${fmtImpulse(isNoEvidence(p.row) ? null : p.row.impulse)})</h4>${driversList(p.row.drivers)}<div>${esc(cleanRationale(p.row.rationale))}</div>` : '')).join('')
       : `${driversList(r.drivers)}<div>${esc(cleanRationale(r.rationale || ''))}</div>`;
-    const impCls = r.impulse > 0 ? 'pos' : r.impulse < 0 ? 'neg' : '';
+    const impCls = r.impulse == null ? '' : r.impulse > 0 ? 'pos' : r.impulse < 0 ? 'neg' : '';
     const setupMeta = SETUP_META[r.setup];
     const setupHtml = setupMeta ? `<span class="setup-pill ${r.setup}" title="${setupMeta.title}">${setupMeta.label}</span>` : '';
     const bPct = basketPct[r.currency];
@@ -428,7 +462,7 @@ function renderBoard() {
       <div class="bar" aria-hidden="true"><span class="mid"></span><span class="fill ${cls}" style="width:${w}%"></span>${markers}</div>
       <div class="ccy-meta">
         <span class="bias ${r.noEvidence ? 'nd' : r.bias}" title="${r.noEvidence ? 'Sin catalizadores medidos en la ventana actual' : ''}">${biasText}</span>
-        <span class="vec-pill" title="Impulso táctico últimas 3 horas">Imp 3h <b class="${impCls}">${signed(r.impulse ?? 0)}</b></span>
+        <span class="vec-pill" title="Impulso táctico últimas 3 horas. n/d = sin prints en la ventana">Imp 3h <b class="${impCls}">${fmtImpulse(r.impulse)}</b></span>
         ${setupHtml}${fxHtml}${engineChipsHtml(view, r)}${divBadge}
       </div>
       <p class="driver" title="${esc(drvText)}">${esc(drvText)}</p>
@@ -460,8 +494,8 @@ function pairConfluence(diff, changePct) {
   if (sameSign && Math.abs(changePct) >= 0.10) {
     return {
       kind: 'confirmado',
-      label: 'Flujo confirmado',
-      title: 'Alineación precio-narrativa: diferencial narrativo |ΔScore| ≥ 20 pts acompañado por variación Spot 24h ≥ 0.10% en la misma dirección.',
+      label: 'Alineado con spot',
+      title: 'Alineación precio-narrativa: diferencial |ΔScore| ≥ 20 pts y Spot 24h ≥ 0.10% en la misma dirección. Mide coincidencia, no confirma flujo operativo.',
     };
   }
   if (!sameSign && Math.abs(diff) >= 28 && Math.abs(changePct) >= 0.18) {
@@ -503,18 +537,18 @@ function renderPairSheet(rows) {
       <div class="pair-sheet-title">
         <span>Ficha comparativa · ${base}/${quote}</span>
         <span class="${diff >= 0 ? 'up' : 'down'}" title="Diferencial neto de fuerza narrativa (${base} ${signed(bRow.score)} vs ${quote} ${signed(qRow.score)})">${diff >= 0 ? '▲' : '▼'} ${Math.abs(diff)} pts (${diff >= 0 ? `Soporte relativo ${base}` : `Soporte relativo ${quote}`})</span>
-        ${mkt ? `<span class="spot-tag" title="${wknd ? 'Último cierre del viernes (mercado FX cerrado en fin de semana)' : 'Cotización interbancaria ECB/Frankfurter'}">${spotPrefix} ${mkt.rate} (${mkt.changePct > 0 ? '+' : ''}${mkt.changePct}%)</span>` : ''}
+        ${mkt ? `<span class="spot-tag" title="${wknd ? 'Último cierre del viernes (mercado FX cerrado en fin de semana)' : 'Cotización interbancaria ECB/Frankfurter'}">${spotPrefix} ${mkt.rate} (${mkt.changePct > 0 ? '+' : ''}${mkt.changePct}%)</span>` : `<span class="spot-tag muted" title="Sin cotización spot para este cruce">sin precio</span>`}
         ${conf ? `<span class="conf-badge ${conf.kind}" title="${esc(conf.title || '')}">${conf.label}</span>` : ''}
       </div>
       <button class="link" id="close-pair-sheet" type="button">Cerrar ✕</button>
     </div>
     <div class="pair-sheet-grid">
       <div class="pair-col">
-        <h5><span>${base} (${BANK[base]})</span><span class="${bRow.score >= 0 ? 'up' : 'down'}">${signed(bRow.score)} · Est ${signed(bRow.structural)} | Imp 3h ${signed(bRow.impulse)}</span></h5>
+        <h5><span>${base} (${BANK[base]})</span><span class="${bRow.score >= 0 ? 'up' : 'down'}">${signed(bRow.score)} · Est ${signed(bRow.structural)} | Imp 3h ${fmtImpulse(bRow.impulse)}</span></h5>
         ${driversList(bRow.drivers)}
       </div>
       <div class="pair-col">
-        <h5><span>${quote} (${BANK[quote]})</span><span class="${qRow.score >= 0 ? 'up' : 'down'}">${signed(qRow.score)} · Est ${signed(qRow.structural)} | Imp 3h ${signed(qRow.impulse)}</span></h5>
+        <h5><span>${quote} (${BANK[quote]})</span><span class="${qRow.score >= 0 ? 'up' : 'down'}">${signed(qRow.score)} · Est ${signed(qRow.structural)} | Imp 3h ${fmtImpulse(qRow.impulse)}</span></h5>
         ${driversList(qRow.drivers)}
       </div>
     </div>
@@ -553,7 +587,7 @@ function renderMatrix(rows) {
     const conf = pairConfluence(p.v, p.mkt?.changePct);
     const spotHtml = p.mkt
       ? `<span class="spot-tag" title="${wknd ? 'Cierre del viernes (fin de semana FX)' : 'Spot 24h'}">${p.mkt.rate} <b class="${p.mkt.changePct > 0 ? 'up' : p.mkt.changePct < 0 ? 'down' : ''}">${p.mkt.changePct > 0 ? '+' : ''}${p.mkt.changePct}%${wknd ? ' (vie.)' : ''}</b></span>`
-      : '';
+      : `<span class="spot-tag muted" title="Sin cotización spot para este cruce">sin precio</span>`;
     const confHtml = conf ? `<span class="conf-badge ${conf.kind}" title="${esc(conf.title || '')}">${conf.label}</span>` : '';
     return `<div class="pair ${ui.selectedPair === p.key ? 'active' : ''}" data-pair="${p.key}">
       <div>
@@ -871,11 +905,10 @@ function renderHealth() {
   const checked = rows.filter((r) => r.h);
   const ok = checked.filter((r) => r.h.ok).length;
   const cal = ui.data.calendar_sync;
-  const liveCalEvents = (ui.data.calendar || []).filter((e) => e.impact !== 'Holiday' && (e.forecast || e.previous) && Date.parse(e.event_at) >= TAPE_CAPTURE_START_MS && Date.parse(e.event_at) < Date.now());
-  const liveCalMatched = liveCalEvents.filter((e) => e.actual).length;
-  const covText = liveCalEvents.length ? ` · Cobertura en vivo ${liveCalMatched}/${liveCalEvents.length} Act` : '';
+  const cov = liveCoverage();
+  const covText = cov.total ? ` · Cobertura en vivo ${cov.matched}/${cov.total} Act${cov.degraded ? ' · datos degradados' : ''}` : '';
   const el = $('#health');
-  el.className = `health ${!checked.length ? 'warn' : ok === checked.length && cal ? '' : ok === 0 ? 'err' : 'warn'}`;
+  el.className = `health ${cov.degraded || !checked.length ? 'warn' : ok === checked.length && cal ? '' : ok === 0 ? 'err' : 'warn'}`;
   el.innerHTML = `<span class="d"></span>${checked.length ? `${ok}/${rows.length} fuentes operativas` : 'Fuentes pendientes'} · Agenda ${cal ? `${cal.events} eventos` : 'no disponible'}${covText}`;
 
   const llm = ui.data.llm;

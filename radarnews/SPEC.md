@@ -100,8 +100,8 @@ DeItaone, FirstSquawk, ZeroHedge (fake), Reuters vía Google News, WSJ congelado
 3. Frescura: 3 días breaking/agencias, 30 días oficiales.
 4. Relevancia: oficiales solo política monetaria/mercado; breaking si divisa, dato o BREAKING real.
 5. Enriquece: divisas, impacto 1–5, categoría, ACTUAL/FORECAST/PREVIOUS, z-score heurístico.
-6. Enlaza calendario ±30 min.
-7. Deduplica por fingerprint SHA-1.
+6. Enlaza calendario ±18 h por **familia de evento** (PMI, retail, labour…) y por solape de título. El `actual` se guarda por `id` de evento y **sobrevive** a un refresh de ForexFactory vacío o a un reinicio.
+7. Deduplica por fingerprint SHA-1 de `título|host+path` canónico (HTTP=HTTPS, sin `www`, sin query). Un mismo documento BoJ no se cuenta dos veces.
 8. Inserta máx. 60 por ciclo, round-robin entre fuentes.
 9. Alertas de titulares nuevos (≤12 h) impacto ≥4 (o geo ≥3). Una publicación de datos = una alerta por divisa y 15 min.
 10. Informe de salud por fuente.
@@ -109,6 +109,8 @@ DeItaone, FirstSquawk, ZeroHedge (fake), Reuters vía Google News, WSJ congelado
 Frecuencia: 5 min; 15 s en ventana turbo (±5 min de un High).
 
 ## 5. Clasificación — Mosler / Soft Currency Economics
+
+**Marco interpretativo (declarado):** RadarNews no usa el textbook “hawkish = long”. Ambos motores aplican Soft Currency Economics (Warren Mosler / MMT): el déficit no es restricción de un emisor soberano de moneda fiat; el overnight es el **precio** del dinero, no su cantidad; un CPI alto con economía débil es escasez relativa (techo 0), no soporte. Un usuario que no comparta este marco verá, p. ej., Agente 0 vs Gemini negativo ante un titular de déficit francés: eso es divergencia de escuela, no un bug. El Agente aplica los vetos Mosler de forma estricta; Gemini es libre dentro del mismo contrato y puede ponderar el riesgo político de otra manera.
 
 Dos motores, historial propio:
 
@@ -124,8 +126,8 @@ Reglas Mosler (ambos):
 5. Interés sobre pasivos públicos = ingreso del no-gobierno.
 6. Sin evidencia ⇒ score 0, N/D, `rank: null`. No alerta de régimen.
 7. Evidencia débil ⇒ −40…+40. Máx. 3 drivers, < 60 caracteres, español.
-8. `bias` interno: alcista > 20, bajista < −20; UI: Soporte / Presión / Neutral / N/D.
-9. Structural = 72 h (oficiales hasta 10 d, vida media 36 h / 10 d). Impulse = 3 h.
+8. `bias` interno: alcista > 12, bajista < −12 (umbral de etiqueta, no constante Mosler); UI: Soporte / Presión / Neutral / N/D.
+9. Structural = 72 h (oficiales hasta 30 d, vida media 36 h / 10 d). Impulse = 3 h; **sin prints en la ventana se muestra n/d, no 0**.
 10. Refugio severo: USD/JPY/CHF soporte; AUD/NZD/CAD presión.
 
 **Consenso**: media solo con evidencia; DIVERGENCIA si sesgo distinto, un motor en N/D, o ≥ 35 puntos.
@@ -133,6 +135,12 @@ Reglas Mosler (ambos):
 ## 6. Interfaz
 
 Grafito, Inter + JetBrains Mono. Verde/rojo solo dirección. PWA: Mac Dock, iPhone/iPad Home Screen. Push VAPID a **todos** los dispositivos a la vez, badge de no leídas. Tailscale Serve (red privada), no Funnel público.
+
+La cinta usa la **fecha de publicación** (RSS/URL), no la de captura. Si un comunicado de la Fed del 16-sep se reescrapea el 24-oct, no aparece como “ahora”. Tooltip: publicado vs capturado cuando diferencian > 2 h.
+
+Cruces sin cotización muestran **sin precio**. La coincidencia precio-narrativa se llama **Alineado con spot**, no “Flujo confirmado”.
+
+Si la cobertura de actuals en vivo cae por debajo del 50 % (≥ 4 eventos con consenso), la UI muestra **datos degradados**: fuentes operativas ≠ integridad de la información.
 
 ## 7. Alertas
 

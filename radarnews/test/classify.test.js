@@ -122,7 +122,7 @@ test('refugio geopolítico: USD/JPY/CHF soporte, NZD presión', () => {
   assert.ok(rows.find((r) => r.currency === 'NZD').score < 0);
 });
 
-test('máximo 3 drivers y sesgo por umbral ±20', () => {
+test('máximo 3 drivers y sesgo por umbral ±12', () => {
   const items = Array.from({ length: 8 }, (_, i) => t(10 + i, {
     title: `US payrolls beat ACTUAL ${200 + i} FORECAST 100`,
     currencies: ['USD'],
@@ -131,8 +131,9 @@ test('máximo 3 drivers y sesgo por umbral ±20', () => {
   }));
   const usd = classifyAgent(items, now).find((r) => r.currency === 'USD');
   assert.ok(usd.drivers.length <= 3);
-  assert.equal(biasFor(21), 'alcista');
-  assert.equal(biasFor(-21), 'bajista');
+  assert.equal(biasFor(13), 'alcista');
+  assert.equal(biasFor(-13), 'bajista');
+  assert.equal(biasFor(12), 'neutral');
   assert.equal(biasFor(0), 'neutral');
 });
 

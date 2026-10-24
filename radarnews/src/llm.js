@@ -48,7 +48,7 @@ export function parseModelJson(text, news) {
       currency,
       score,
       structural: score,
-      impulse: hasCite ? Math.round(Number(r.impulse) || 0) : 0,
+      impulse: hasCite && r.impulse != null ? Math.round(Number(r.impulse) || 0) : null,
       setup: r.setup || '',
       bias: biasFor(score),
       drivers,

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SOURCES, PRESERVED_SOURCE_IDS, CURRENCIES } from '../src/config.js';
-import { isOfficialNoise, isRelevant, fingerprint, parseRss, parseTelegram, parseMacro, detectCurrencies, enrichRaw } from '../src/enrich.js';
+import { isOfficialNoise, isRelevant, fingerprint, parseRss, parseTelegram, parseMacro, detectCurrencies, enrichRaw, headlineFromUrl } from '../src/enrich.js';
 
 test('universo G8 intacto', () => {
   assert.deepEqual(CURRENCIES, ['USD', 'EUR', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD', 'NZD']);
@@ -55,8 +55,8 @@ test('Negocios TV filtra política doméstica sin G8', () => {
   assert.equal(isRelevant(keep), true);
 });
 
-test('fingerprint estable y parseo FJ ACTUAL/FORECAST', () => {
-  assert.equal(fingerprint('Hello', 'http://x'), fingerprint('Hello', 'http://x'));
+test('fingerprint estable, HTTP=HTTPS y parseo FJ ACTUAL/FORECAST', () => {
+  assert.equal(fingerprint('Hello', 'http://x.com/a'), fingerprint('Hello', 'https://www.x.com/a/'));
   const m = parseMacro('US CPI ACTUAL 3.2% FORECAST 3.1% PREVIOUS 3.0%');
   assert.equal(m.actual, '3.2%');
   assert.equal(m.forecast, '3.1%');
@@ -78,4 +78,10 @@ test('enrich asigna fuente oficial NZD', () => {
   });
   assert.ok(item.currencies.includes('NZD'));
   assert.equal(item.source_type, 'oficial');
+});
+
+test('headlineFromUrl recupera PMI 57.9 vs 58.0 de un slug InvestingLive', () => {
+  const h = headlineFromUrl('https://investinglive.com/news/pmi-57-9-vs-58-0-expected');
+  assert.match(h, /57\.9/);
+  assert.match(h, /58\.0/);
 });

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { SOURCES, WINDOWS, UA } from './config.js';
 import { enrichRaw, isRelevant, parseRss, parseTelegram, parseHtmlList } from './enrich.js';
-import { insertNews, recentNews, listNews, saveScores, latestEngine, insertAlert, listCalendar, upsertCalendar } from './db.js';
+import { insertNews, recentNews, listNews, saveScores, latestEngine, insertAlert, listCalendar, upsertCalendar, persistCalendarLinks, persistNewsLinks, repairPersistedNews } from './db.js';
 import { classifyAgent, attachRanks, rankingAlerts, isNoEvidence } from './classifyCurrencies.js';
 import { classifyWithGemini } from './llm.js';
 import { fetchCalendar, linkNewsToCalendar, duePrealerts } from './calendar.js';
@@ -74,7 +74,8 @@ export async function refreshFeed(db, { classify = true } = {}) {
   } catch (err) {
     calendarSync = { events: 0, ok: false, error: String(err.message || err) };
   }
-  const events = listCalendar(db);
+  repairPersistedNews(db);
+  let events = listCalendar(db);
   linkNewsToCalendar(batch, events);
 
   let inserted = 0;
@@ -115,8 +116,14 @@ export async function refreshFeed(db, { classify = true } = {}) {
     alerts.push({ title: `Agenda 15 min · ${e.currency} ${e.title}` });
   }
 
+  events = listCalendar(db);
+  const stored = listNews(db, 2000);
+  linkNewsToCalendar(stored, events);
+  persistCalendarLinks(db, events);
+  persistNewsLinks(db, stored);
+
   if (classify) {
-    const horizon = new Date(Date.now() - 10 * 86400_000).toISOString();
+    const horizon = new Date(Date.now() - WINDOWS.oficialMs).toISOString();
     const news = recentNews(db, horizon);
     const snapshot = new Date().toISOString();
     const prevAgent = latestEngine(db, 'agente');

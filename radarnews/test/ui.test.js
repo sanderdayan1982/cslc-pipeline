@@ -35,3 +35,20 @@ test('ranking no aprieta meta y driver en una sola línea nowrap', () => {
   assert.match(css, /-webkit-line-clamp:\s*2/);
   assert.doesNotMatch(css, /\.ccy-sub \.driver \{[^}]*white-space:\s*nowrap/);
 });
+
+test('cruces no venden Flujo confirmado ni dejan el spot en blanco', () => {
+  assert.doesNotMatch(app, /Flujo confirmado/);
+  assert.match(app, /Alineado con spot/);
+  assert.match(app, /sin precio/);
+  assert.match(app, /datos degradados/i);
+  assert.match(app, /fmtImpulse/);
+  assert.match(app, /BIAS_THRESHOLD = 12/);
+});
+
+test('la metodología declara Mosler/MMT, umbral ±12 y fechas reales', () => {
+  const spec = readFileSync(new URL('../SPEC.md', import.meta.url), 'utf8');
+  assert.match(spec, /Marco interpretativo/);
+  assert.match(spec, /datos degradados/);
+  assert.match(spec, /alcista > 12/);
+  assert.match(spec, /fecha de publicación/);
+});

@@ -1,4 +1,4 @@
-import { CURRENCIES, WINDOWS } from './config.js';
+import { CURRENCIES, WINDOWS, BIAS_THRESHOLD } from './config.js';
 
 const INVERTED = /unemployment|jobless|claims|paro|desempleo/i;
 const CPI = /\b(cpi|inflation|ipc|pce|ppi|lkh|teuerung|preisstabilität)\b/i;
@@ -13,7 +13,7 @@ const NFA_ADD = /\b(deficit spending|fiscal impulse|profit distribution|bond pro
 const GEO_SEVERE = /\b(war|missile|invasion|strike on|nuclear|hormuz closed|attack)\b/i;
 const TRADE = /\b(trade balance|current account|exports?|imports?|terms of trade|dairy)\b/i;
 const TRADE_DEAL = /\b(trade (?:deal|agreement|ties)|strengthen(?:s|ed)? .{0,28}(?:ties|trade)|digital trade|new agreement on)\b/i;
-const GROWTH_UP = /\b(revis(?:ión|ion) al alza|raises? (?:its )?(?:growth|gdp|forecast)|upgrades? (?:growth|gdp)|eleva(?:n)? .{0,28}previsión|growth (?:beats?|accelerat))\b/i;
+const GROWTH_UP = /\b(revis(?:ión|ion) al alza|raises? (?:its )?(?:growth|gdp|forecast)|upgrades? (?:growth|gdp)|eleva(?:n)? .{0,28}previsión|growth (?:beats?|accelerat|stronger)|stronger than previously)\b/i;
 const GROWTH_DOWN = /\b(revis(?:ión|ion) a la baja|cuts? (?:its )?(?:growth|gdp|forecast)|downgrades? (?:growth|gdp)|growth (?:slows?|miss(?:es)?|contracts?))\b/i;
 const CONF_DOWN = /\b(confidence (?:collapses?|plunges?|falls?|slumps?|cracks?)|colapso de (?:la )?confianza|cost of living pressures)\b/i;
 const CONF_UP = /\b(confidence (?:jumps?|surges?|rises?|rebounds?))\b/i;
@@ -31,9 +31,9 @@ const OPERATIONAL = /\bincreased to|programme decreased|tender|\bbills?\b|auctio
 const SAFE = new Set(['USD', 'JPY', 'CHF']);
 const BETA = new Set(['AUD', 'NZD', 'CAD']);
 
-export function biasFor(score) {
-  if (score > 20) return 'alcista';
-  if (score < -20) return 'bajista';
+export function biasFor(score, threshold = BIAS_THRESHOLD) {
+  if (score > threshold) return 'alcista';
+  if (score < -threshold) return 'bajista';
   return 'neutral';
 }
 
@@ -82,7 +82,7 @@ INVARIANTES
 6. Interés pagado sobre pasivos públicos es ingreso del no-gobierno (canal NFA). Tratarlo como operacional, no como tightness real.
 7. Divisa sin titulares propios: score 0, drivers ["Sin catalizadores en el ciclo"], rationale de evidencia nula. Prohibido rellenar con narrativa de otra región.
 8. Lenguaje de mesa, no de ejecución: Soporte / Presión / Neutral / N/D. Prohibido "long", "short", "vía libre operativa", "sesgo largo/corto".
-9. Máximo 3 drivers, < 60 caracteres, en español. Score −100..+100. bias interno: alcista>20, bajista<-20, si no neutral.
+9. Máximo 3 drivers, < 60 caracteres, en español. Score −100..+100. bias interno: alcista>umbral, bajista<-umbral, si no neutral. El umbral es de etiqueta, no de Mosler.
 10. Evidencia débil ⇒ rango −40…+40. No devolver puntuaciones idénticas entre divisas que SÍ tienen evidencia.
 11. El CPI NO es el motor único. Canales en paralelo, mismo peso: NFA/fiscal, dato real (empleo, PIB, PMI, ventas, confianza), sector exterior, precio del dinero, riesgo. El CPI solo pone TECHO de precio relativo (cost-push). Un print de empleo/PMI/PIB sin inflación debe mover el score.`;
 
@@ -253,6 +253,7 @@ function topDrivers(sigs) {
 }
 
 function calcSetup(structural, impulse) {
+  if (impulse == null) return '';
   if (Math.abs(structural) >= 18 && Math.abs(impulse) >= 12 && Math.sign(structural) === Math.sign(impulse)) return 'confluencia';
   if (Math.abs(structural) >= 18 && Math.abs(impulse) >= 15 && Math.sign(structural) !== Math.sign(impulse)) return 'giro';
   if (Math.abs(structural) < 18 && Math.abs(impulse) >= 18) return 'impulso';
@@ -274,7 +275,7 @@ export function classifyAgent(items, now = Date.now()) {
         currency,
         score: 0,
         structural: 0,
-        impulse: 0,
+        impulse: null,
         setup: '',
         bias: 'neutral',
         drivers: ['Sin catalizadores en el ciclo'],
@@ -286,23 +287,31 @@ export function classifyAgent(items, now = Date.now()) {
       };
     }
     const structural = clamp(Math.round(recent.reduce((s, x) => s + x.contrib * windowWeight(x.item, now, signalWindowMs(x.item)), 0)));
-    const impulse = clamp(Math.round(sigs.filter((x) => now - x.at <= WINDOWS.impulseMs).reduce((s, x) => s + x.raw * decay(x.item, now, 1.5), 0)));
+    const impulseHits = sigs.filter((x) => now - x.at <= WINDOWS.impulseMs);
+    const impulse = impulseHits.length
+      ? clamp(Math.round(impulseHits.reduce((s, x) => s + x.raw * decay(x.item, now, 1.5), 0)))
+      : null;
     let score = structural;
     const signedHits = recent.filter((x) => Math.abs(x.raw) >= 0.4).length;
     const weak = signedHits < 2 && Math.abs(score) < 12;
     if (signedHits < 2 && Math.abs(score) <= 40) score = clamp(score, -40, 40);
     const drivers = topDrivers(recent);
     if (!drivers.length) {
+      const fallback = recent.slice(0, 3).map((s) => (s.driver || s.title || '').replace(/\s+/g, ' ').trim().slice(0, 59))
+        .filter((d) => d && !/^https?:/i.test(d));
       return {
-        currency, score: 0, structural: 0, impulse: 0, setup: '', bias: 'neutral',
-        drivers: recent.slice(0, 3).map((s) => (s.title || '').slice(0, 59)).filter(Boolean).concat(['Sin catalizadores en el ciclo']).slice(0, 3),
-        rationale: `${recent.length} titulares oficiales sin canal cuantificable · Neutral.`,
+        currency, score: 0, structural: 0, impulse, setup: '', bias: 'neutral',
+        drivers: (fallback.length ? fallback : ['Sin catalizadores en el ciclo']).slice(0, 3),
+        rationale: `${recent.length === 1 ? '1 titular' : `${recent.length} titulares`} sin canal cuantificable · Neutral.`,
         regime_note: '', noEvidence: false, channel: null, engine: 'agente',
       };
     }
     const mainCh = recent.slice().sort((a, b) => Math.abs(b.contrib) - Math.abs(a.contrib))[0]?.channel;
     const liveCh = [...new Set(recent.filter((x) => Math.abs(x.raw) >= 0.4).map((x) => x.channel))];
-    const rationale = `${recent.length} titulares · ${liveCh.join(' + ') || mainCh || 'sin canal'} · Est ${score >= 0 ? '+' : ''}${score} | Imp 3h ${impulse >= 0 ? '+' : ''}${impulse}${weak ? ' · evidencia débil' : ''}. Régimen real ${regimes[currency]}.`;
+    const nTit = recent.length;
+    const titWord = nTit === 1 ? 'titular' : 'titulares';
+    const impTxt = impulse == null ? 'n/d' : `${impulse >= 0 ? '+' : ''}${impulse}`;
+    const rationale = `${nTit} ${titWord} · ${liveCh.join(' + ') || mainCh || 'sin canal'} · Est ${score >= 0 ? '+' : ''}${score} | Imp 3h ${impTxt}${weak ? ' · evidencia débil' : ''}. Régimen real ${regimes[currency]}.`;
     return {
       currency,
       score,
@@ -326,7 +335,7 @@ export function attachRanks(rows) {
   let rank = 1;
   return [
     ...measured.map((r) => ({ ...r, rank: rank++, noEvidence: false })),
-    ...unmeasured.map((r) => ({ ...r, score: 0, structural: 0, impulse: 0, bias: 'neutral', rank: null, noEvidence: true })),
+    ...unmeasured.map((r) => ({ ...r, score: 0, structural: 0, impulse: null, bias: 'neutral', rank: null, noEvidence: true })),
   ];
 }
 

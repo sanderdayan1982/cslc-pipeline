@@ -168,6 +168,20 @@ for i in ["rbnz","snb-press","burbuja-mercados","negociostv","financialjuice"]:
     x=h.get(i) or {}
     print(i, "ok=", x.get("ok"), "url=", x.get("url"), "err=", x.get("error"), "rel=", x.get("relevant"))
 print("news", len(d.get("news") or []), "error", d.get("error"))
+urls=[(n.get("title") or "") for n in (d.get("news") or [])]
+assert not any(t.startswith("http") for t in urls), "titular URL cruda"
+paths=set()
+for n in d.get("news") or []:
+    u=(n.get("url") or "").replace("http://","https://").rstrip("/")
+    if u in paths:
+        print("DUP", u)
+    paths.add(u)
+fed=[n for n in (d.get("news") or []) if "monetary20260916" in (n.get("url") or "")]
+for n in fed:
+    assert not str(n.get("published_at") or "").startswith("2026-10-24"), n
+cal=d.get("calendar") or []
+with_act=sum(1 for e in cal if e.get("actual") and e.get("impact")!="Holiday")
+print("calendar_actuals", with_act, "/", len(cal))
 assert not missing, missing
 assert (d.get("settings") or {}).get("gemini",{}).get("model")=="gemini-3.8-flash"
 bj=h.get("burbuja-mercados") or {}
@@ -179,6 +193,8 @@ PY
 `burbuja-mercados` debe tener `url` con `t.me/s/BrujulaDeMercados` y `ok=true` (vista pública). Si `ok=false` con “sin vista pública”, el scrape de Telegram falló: reintenta un refresh `curl -X POST http://127.0.0.1:4700/api/refresh`.
 
 En la app (Ajustes → Fuentes): RBNZ, SNB, SECO, BIS, Negocios TV, Brújula de Mercados. Ranking: CHF/NZD ya no deberían ser N/D eterno si hay comunicados.
+
+Tras el arranque, una **actualización o reinicio debe conservar** los Act ya hidratados, no poner un FOMC de septiembre como “ahora”, ni duplicar el mismo PDF BoJ en HTTP y HTTPS. Si la cobertura Act es baja, la cinta debe decir **datos degradados**, no “25/25 fuentes” como si eso fuera integridad.
 
 ## 7. Tailscale: Serve, no Funnel
 
