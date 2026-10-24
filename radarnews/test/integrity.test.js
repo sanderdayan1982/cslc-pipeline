@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   cleanHeadline, headlineFromUrl, parseMacro, parseRss, parseTelegram, enrichRaw,
   fingerprint, canonicalPath, preferPublishedAt, normalizeStoredNews, dedupeNews,
+  isRelevant, parseHtmlList,
 } from '../src/enrich.js';
 import { openDb, insertNews, upsertCalendar, listCalendar, listNews, recentNews, saveScores, latestEngine, persistCalendarLinks, repairPersistedNews } from '../src/db.js';
 import { linkNewsToCalendar } from '../src/calendar.js';
@@ -61,8 +62,8 @@ test('FinancialJuice limpia | FJ y guarda el enlace del mensaje, no el canal', (
   assert.doesNotMatch(items[0].title, /\|\s*FJ/i);
   assert.match(items[0].url, /FinancialJuice\/88771/);
   const item = enrichRaw(items[0], FJ);
-  assert.ok(item.currencies.includes('USD'));
   assert.equal(item.category, 'geopolitica');
+  assert.equal(item.currencies.includes('USD'), false, 'aviso civil no es refugio G8');
 });
 
 test('Fed CDATA y URL monetaryYYYYMMDD no se rejuvenecen al scrape', () => {
@@ -229,4 +230,110 @@ test('listNews no duplica documentos equivalentes ni rejuvenece Fed guardada mal
   assert.match(n.published_at, /^2026-09-16/);
   const horizon = recentNews(db, '2026-09-01T00:00:00.000Z');
   assert.equal(horizon.length, 1);
+});
+
+test('el mismo post FJ canal vs mensaje colapsa al permalink', () => {
+  const title = 'Iran President Pezeshkian blames US for interim deal failure';
+  const channel = 'https://t.me/FinancialJuice';
+  const msg = 'https://t.me/FinancialJuice/142490';
+  assert.equal(fingerprint(title, channel), fingerprint(title, msg));
+  const rows = dedupeNews([
+    { title, url: channel, source: 'FinancialJuice' },
+    { title, url: msg, source: 'FinancialJuice' },
+  ]);
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].url, /142490/);
+  const html = `<div class="tgme_widget_message_wrap">
+    <div class="tgme_widget_message_text">${title}</div>
+    <time datetime="2026-10-24T12:00:00+00:00"></time>
+    <a href="https://t.me/FinancialJuice">channel</a>
+  </div>
+  <div class="tgme_widget_message_wrap">
+    <div class="tgme_widget_message_text">${title}</div>
+    <time datetime="2026-10-24T12:00:00+00:00"></time>
+    <a href="https://t.me/FinancialJuice/142490">permalink</a>
+  </div>`;
+  const parsed = parseTelegram(html);
+  assert.equal(parsed.length, 1);
+  assert.match(parsed[0].url, /142490/);
+});
+
+test('InvestingLive misma URL con titular distinto no se cuenta dos veces', () => {
+  const url = 'https://investinglive.com/news/us-s-p-global-flash-october-services-pmi-57-9-vs-58-0-expected';
+  assert.equal(
+    fingerprint('US S&P Global flash October services PMI 57.9 vs 58.0 expected', url),
+    fingerprint('Us s p global flash october services pmi 57.9 vs 58.0 expected', url),
+  );
+});
+
+test('PMI alemán no hidrata el evento francés; services no hidrata manufacturing', () => {
+  const events = [
+    { id: 'fr-mfg', title: 'French Flash Manufacturing PMI', currency: 'EUR', event_at: '2026-10-23T07:15:00.000Z', impact: 'High', forecast: '50.5', previous: '50.0', actual: null, news_item_id: null },
+    { id: 'fr-svc', title: 'French Flash Services PMI', currency: 'EUR', event_at: '2026-10-23T07:15:00.000Z', impact: 'High', forecast: '50.7', previous: '51.0', actual: null, news_item_id: null },
+    { id: 'de-mfg', title: 'German Flash Manufacturing PMI', currency: 'EUR', event_at: '2026-10-23T07:30:00.000Z', impact: 'High', forecast: '53.5', previous: '53.0', actual: null, news_item_id: null },
+    { id: 'us-mfg', title: 'Flash Manufacturing PMI', currency: 'USD', event_at: '2026-10-23T13:45:00.000Z', impact: 'High', forecast: '55.4', previous: '55.0', actual: null, news_item_id: null },
+    { id: 'us-svc', title: 'Flash Services PMI', currency: 'USD', event_at: '2026-10-23T13:45:00.000Z', impact: 'High', forecast: '58.0', previous: '58.8', actual: null, news_item_id: null },
+  ];
+  const news = [
+    { id: 1, title: 'Germany October flash manufacturing PMI 54.2 vs 53.5 expected', actual: '54.2', forecast: '53.5', currencies: ['EUR'], published_at: '2026-10-23T12:00:00.000Z' },
+    { id: 2, title: 'US S&P Global flash October services PMI 57.9 vs 58.0 expected', actual: '57.9', forecast: '58.0', currencies: ['USD'], published_at: '2026-10-23T14:00:00.000Z' },
+  ];
+  linkNewsToCalendar(news, events);
+  assert.equal(events.find((e) => e.id === 'de-mfg').actual, '54.2');
+  assert.equal(news[0].calendar_title, 'German Flash Manufacturing PMI');
+  assert.notEqual(events.find((e) => e.id === 'fr-mfg').actual, '54.2');
+  assert.equal(events.find((e) => e.id === 'us-svc').actual, '57.9');
+  assert.equal(news[1].calendar_title, 'Flash Services PMI');
+  assert.equal(events.find((e) => e.id === 'us-mfg').actual, null);
+});
+
+test('IDs de YouTube de Negocios TV no entran como geopolítica', () => {
+  const skip = {
+    title: 'SXFbIJ 06Qw',
+    source: 'Negocios TV',
+    currencies: [],
+    source_type: 'agencia',
+    category: 'geopolitica',
+  };
+  assert.equal(isRelevant(skip), false);
+});
+
+test('Hormuz sí es refugio; aviso civil saudí no mueve CHF', () => {
+  const now = Date.parse('2026-10-24T12:00:00Z');
+  const civil = enrichRaw({
+    title: 'Saudi civil defense issues warning of potential hazard in Jeddah',
+    url: 'https://t.me/FinancialJuice/1',
+    body: '',
+    published_at: '2026-10-24T11:00:00Z',
+  }, FJ);
+  assert.equal(civil.currencies.length, 0);
+  const hormuz = enrichRaw({
+    title: 'Missile attack closes Hormuz, war risk',
+    url: 'https://t.me/FinancialJuice/2',
+    body: '',
+    published_at: '2026-10-24T11:05:00Z',
+  }, FJ);
+  assert.ok(hormuz.currencies.includes('CHF'));
+  const rows = classifyAgent([
+    { ...civil, currencies: civil.currencies, source_type: 'breaking', impact: 3, fingerprint: 'c', published_at: new Date(now - 20 * 60_000).toISOString() },
+    { ...hormuz, currencies: hormuz.currencies, source_type: 'breaking', category: 'geopolitica', impact: 5, fingerprint: 'h', published_at: new Date(now - 10 * 60_000).toISOString() },
+  ], now);
+  const chf = rows.find((r) => r.currency === 'CHF');
+  assert.ok(chf.score > 0);
+  assert.ok(chf.score < 100);
+});
+
+test('SECO HTML enlaza el comunicado, no el listing', () => {
+  const html = `<h3>Switzerland and Vietnam strengthen ties in trade, investment and innovation</h3>
+    <a class="btn" href="/en/newnsb/nFr5JFmp-iss" aria-label="More about «Switzerland and Vietnam strengthen ties in trade, investment and innovation»"></a>`;
+  const items = parseHtmlList(html, 'https://www.seco.admin.ch/en/press-releases');
+  assert.ok(items.length >= 1);
+  assert.match(items[0].url, /newnsb\/nFr5JFmp-iss/);
+  assert.doesNotMatch(items[0].url, /press-releases$/);
+});
+
+test('el ciclo Gemini usa la clave de entorno, no solo settings.json', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/refreshFeed.js', import.meta.url), 'utf8');
+  assert.match(src, /publicGemini/);
 });

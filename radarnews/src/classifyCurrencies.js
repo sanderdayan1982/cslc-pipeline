@@ -27,7 +27,7 @@ const REAL = /\b(gdp|pib|pmi|ism|ifo|zew|seco|payroll|nfp|employment|unemploymen
 const HAWK_TONE = /\b(restrictive|vigilant|inflation persistent|tightening|higher for longer|hawkish|discount rate|assessment .{0,24}(?:tight|restrict))\b/i;
 const DOVE_TONE = /\b(patient|easing cycle|dovish|cut rates|accommodative)\b/i;
 const POLICY_EVENT = /\b(fomc|minutes|statement|ocr|mps|monetary policy (?:review|report)|assessment|outlook|remarks|press conference|projections)\b/i;
-const OPERATIONAL = /\bincreased to|programme decreased|tender|\bbills?\b|auction|repo\b/i;
+const OPERATIONAL = /\bincreased to|programme decreased|tender|\bbills?\b|auction|repo\b|rig count|baker hughes|bid-to-cover|tips (?:high )?yield/i;
 const SAFE = new Set(['USD', 'JPY', 'CHF']);
 const BETA = new Set(['AUD', 'NZD', 'CAD']);
 
@@ -161,7 +161,7 @@ function channelAndRaw(item, ccy, regime) {
     if (TRADE_DEAL.test(text)) return { raw: 8 * w, channel: 'TRADE_EXTERNAL', driver: 'Acuerdo comercial / sector exterior' };
     return { raw: 0, channel: 'TRADE_EXTERNAL', driver: 'Sector exterior' };
   }
-  if (item.category === 'mercado' && OPERATIONAL.test(text)) {
+  if ((item.category === 'mercado' || OPERATIONAL.test(text)) && OPERATIONAL.test(text) && !HIKE.test(text) && !CUT.test(text)) {
     return { raw: 0, channel: 'OPERATIONAL', driver: 'Operaciones / IRMA' };
   }
 
@@ -252,6 +252,14 @@ function topDrivers(sigs) {
     .slice(0, 3);
 }
 
+function clipChannel(sigs, channel, maxAbs) {
+  const hits = sigs.filter((s) => s.channel === channel);
+  const sum = hits.reduce((a, s) => a + s.contrib, 0);
+  if (Math.abs(sum) <= maxAbs || !hits.length) return;
+  const scale = maxAbs / Math.abs(sum);
+  for (const s of hits) s.contrib *= scale;
+}
+
 function calcSetup(structural, impulse) {
   if (impulse == null) return '';
   if (Math.abs(structural) >= 18 && Math.abs(impulse) >= 12 && Math.sign(structural) === Math.sign(impulse)) return 'confluencia';
@@ -286,6 +294,7 @@ export function classifyAgent(items, now = Date.now()) {
         engine: 'agente',
       };
     }
+    clipChannel(recent, 'RISK_GEO', 24);
     const structural = clamp(Math.round(recent.reduce((s, x) => s + x.contrib * windowWeight(x.item, now, signalWindowMs(x.item)), 0)));
     const impulseHits = sigs.filter((x) => now - x.at <= WINDOWS.impulseMs);
     const impulse = impulseHits.length

@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from './config.js';
-import { dedupeNews, fingerprint, normalizeStoredNews, surpriseZ } from './enrich.js';
+import { dedupeNews, fingerprint, normalizeStoredNews, surpriseZ, urlSpecificity } from './enrich.js';
 
 export function openDb(file = join(DATA_DIR, 'radarnews.db')) {
   mkdirSync(DATA_DIR, { recursive: true });
@@ -93,6 +93,7 @@ const parseJson = (v, fallback) => {
 };
 
 export function insertNews(db, item) {
+  const fp = item.fingerprint || fingerprint(item.title, item.url);
   const stmt = db.prepare(`INSERT OR IGNORE INTO news
     (title, body, source, source_id, source_type, url, published_at, currencies, impact, category, actual, forecast, previous, calendar_title, fingerprint, z, absZ)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
@@ -101,9 +102,15 @@ export function insertNews(db, item) {
     item.url || '', item.published_at, json(item.currencies || []),
     item.impact ?? 1, item.category || 'otro',
     item.actual, item.forecast, item.previous, item.calendar_title,
-    item.fingerprint, item.z ?? null, item.absZ ?? null,
+    fp, item.z ?? null, item.absZ ?? null,
   );
-  return info.changes > 0;
+  if (info.changes > 0) return true;
+  const row = db.prepare('SELECT url FROM news WHERE fingerprint=?').get(fp);
+  if (row && urlSpecificity(item.url) > urlSpecificity(row.url)) {
+    db.prepare('UPDATE news SET url=?, actual=COALESCE(actual, ?), forecast=COALESCE(forecast, ?), previous=COALESCE(previous, ?) WHERE fingerprint=?')
+      .run(item.url, item.actual, item.forecast, item.previous, fp);
+  }
+  return false;
 }
 
 export function listNews(db, limit = 250) {

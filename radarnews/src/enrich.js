@@ -29,14 +29,37 @@ export function canonicalUrl(url = '') {
 export function canonicalPath(url = '') {
   try {
     const u = new URL(canonicalUrl(url));
-    return `${u.hostname}${u.pathname}`.toLowerCase();
+    const host = u.hostname.toLowerCase();
+    if (host === 't.me' || host.endsWith('.t.me')) {
+      const parts = u.pathname.split('/').filter(Boolean);
+      const ch = parts[0] === 's' ? parts[1] : parts[0];
+      return ch ? `t.me/${ch.toLowerCase()}` : 't.me';
+    }
+    return `${host}${u.pathname}`.toLowerCase();
   } catch {
     return String(url || '').toLowerCase();
   }
 }
 
 export function fingerprint(title, url = '') {
-  return createHash('sha1').update(`${(title || '').trim().toLowerCase()}|${canonicalPath(url)}`).digest('hex');
+  const path = canonicalPath(url);
+  if (/investinglive\.com\//.test(path) && path.split('/').filter(Boolean).length >= 3) {
+    return createHash('sha1').update(path).digest('hex');
+  }
+  const t = (title || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return createHash('sha1').update(`${t}|${path}`).digest('hex');
+}
+
+export function urlSpecificity(url = '') {
+  try {
+    return new URL(canonicalUrl(url)).pathname.split('/').filter(Boolean).length;
+  } catch {
+    return 0;
+  }
+}
+
+export function isTelegramPermalink(url = '') {
+  return /t\.me\/(?:s\/)?[^/]+\/\d+/i.test(String(url));
 }
 
 export function headlineFromUrl(url = '') {
@@ -171,6 +194,7 @@ export function isOfficialNoise(title) {
 }
 
 export function isRelevant(item) {
+  if (isGarbageTitle(item.title)) return false;
   if (item.source_type === 'oficial') {
     if (isOfficialNoise(item.title)) return false;
     return OFFICIAL_KEEP.test(item.title);
@@ -225,16 +249,20 @@ export function parseRss(xml) {
 
 export function parseTelegram(html) {
   const items = [];
+  const seen = new Set();
   const msgs = String(html || '').split('tgme_widget_message_wrap');
   for (const block of msgs.slice(1)) {
     const text = decodeEntities(/tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>/i.exec(block)?.[1] || '');
     const when = /datetime="([^"]+)"/i.exec(block)?.[1];
     const hrefs = [...block.matchAll(/href="(https:\/\/t\.me\/[^"]+)"/gi)].map((m) => m[1]);
     const msgUrl = hrefs.find((u) => /t\.me\/(?:s\/)?[^/]+\/\d+/i.test(u)) || '';
+    if (!text || !msgUrl) continue;
     const article = articleUrlFromText(text, msgUrl);
-    if (!text) continue;
     const rawLine = text.split('\n')[0].slice(0, 400);
     const title = cleanHeadline(rawLine, article, '');
+    const key = title.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
     const published = Date.parse(when);
     items.push({
       title,
@@ -256,15 +284,29 @@ export function parseHtmlList(html, baseUrl) {
   const items = [];
   const seen = new Set();
   const origin = new URL(baseUrl).origin;
+  const byTitle = new Map();
   const push = (title, href) => {
-    title = decodeEntities(title);
-    if (skipHtmlTitle(title) || seen.has(title)) return;
+    title = decodeEntities(title).replace(/^More about\s*[«"]?/i, '').replace(/[»"]$/, '').trim();
+    if (skipHtmlTitle(title) || seen.has(title)) {
+      if (href && byTitle.has(title) && byTitle.get(title) === baseUrl) {
+        try {
+          const url = new URL(href, baseUrl).href;
+          if (url.startsWith(origin) && url !== baseUrl) {
+            const row = items.find((x) => x.title === title);
+            if (row) row.url = url;
+            byTitle.set(title, url);
+          }
+        } catch { /* ignore */ }
+      }
+      return;
+    }
     let url = baseUrl;
     if (href) {
       try { url = new URL(href, baseUrl).href; } catch { return; }
       if (!url.startsWith(origin)) return;
     }
     seen.add(title);
+    byTitle.set(title, url);
     items.push({
       title,
       url,
@@ -272,6 +314,14 @@ export function parseHtmlList(html, baseUrl) {
       published_at: preferPublishedAt(url, new Date(Date.now() - 6 * 3600_000).toISOString()),
     });
   };
+  const labeled = [
+    ...String(html || '').matchAll(/href="([^"]+)"[^>]*aria-label="More about\s*«([^»]+)»/gi),
+    ...String(html || '').matchAll(/aria-label="More about\s*«([^»]+)»"[^>]*href="([^"]+)"/gi),
+  ];
+  for (const m of labeled) {
+    if (m[1].startsWith('http') || m[1].startsWith('/')) push(m[2], m[1]);
+    else push(m[1], m[2]);
+  }
   const heads = String(html || '').matchAll(/<h[1-4][^>]*>\s*(?:<a[^>]+href="([^"]+)"[^>]*>)?([^<]{20,180})/gi);
   for (const m of heads) push(m[2], m[1]);
   if (items.length < 4) {
@@ -285,17 +335,27 @@ export function parseHtmlList(html, baseUrl) {
   return items.slice(0, 40);
 }
 
+const GEO_HAVEN = /\b(war|missile|invasion|strike on|nuclear|hormuz|attack|tanker|naval mine)\b/i;
+
 function geoCurrencies(text, found) {
   if (found.length) return found;
-  if (!GEO.test(text)) return found;
+  if (!GEO_HAVEN.test(text)) return found;
   const out = ['USD', 'JPY', 'CHF'];
   if (/\b(oil|crude|hormuz|tanker|iran)\b/i.test(text)) out.push('CAD');
   return out;
 }
 
+export function isGarbageTitle(title) {
+  const t = String(title || '').trim();
+  if (!t || t.length > 22) return false;
+  if (/^[A-Za-z0-9_-]{6,16}(?:\s+[A-Za-z0-9_-]{2,8}){0,2}$/.test(t) && !/[aeiou]{2}/i.test(t)) return true;
+  return false;
+}
+
 export function enrichRaw(raw, source) {
   const sourceName = source.name.replace(/ ·.*/, '').replace(/ \/ NZDM/, '');
-  const article = articleUrlFromText(`${raw.title} ${raw.body || ''}`, raw.url || source.url);
+  const tgFallback = isTelegramPermalink(raw.url) ? raw.url : '';
+  const article = articleUrlFromText(`${raw.title} ${raw.body || ''}`, tgFallback || (source.kind === 'telegram' ? '' : (raw.url || source.url)));
   const title = cleanHeadline(raw.title, article, sourceName);
   const text = `${title} ${raw.body || ''}`;
   const macro = parseMacro(text);
@@ -328,7 +388,8 @@ export function enrichRaw(raw, source) {
 
 export function normalizeStoredNews(row) {
   const title = cleanHeadline(row.title, row.url, row.source);
-  const url = articleUrlFromText(`${row.title} ${row.body || ''} ${row.url || ''}`, row.url);
+  const permalink = isTelegramPermalink(row.url) ? row.url : articleUrlFromText(`${row.title} ${row.body || ''} ${row.url || ''}`, row.url);
+  const url = permalink;
   const text = `${title} ${row.body || ''}`;
   const macro = parseMacro(text);
   let currencies = Array.isArray(row.currencies) ? row.currencies : [];
@@ -352,15 +413,20 @@ export function normalizeStoredNews(row) {
 }
 
 export function dedupeNews(rows) {
-  const seen = new Set();
-  const out = [];
+  const by = new Map();
   for (const r of rows) {
-    const key = `${(r.title || '').toLowerCase()}|${canonicalPath(r.url)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(r);
+    const key = fingerprint(r.title, r.url);
+    const prev = by.get(key);
+    if (!prev) {
+      by.set(key, r);
+      continue;
+    }
+    const keep = urlSpecificity(r.url) > urlSpecificity(prev.url) ? { ...prev, ...r, url: r.url, title: prev.title.length >= r.title.length ? prev.title : r.title } : prev;
+    if (r.actual && !keep.actual) keep.actual = r.actual;
+    if (r.forecast && !keep.forecast) keep.forecast = r.forecast;
+    by.set(key, keep);
   }
-  return out;
+  return [...by.values()];
 }
 
 export function sourceById(id) {

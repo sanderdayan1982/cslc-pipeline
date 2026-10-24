@@ -41,7 +41,13 @@ const MATCH_MS = 18 * 3600_000;
 
 export function eventFamily(title) {
   const t = String(title || '').toLowerCase();
-  if (/\bpmi\b|purchasing managers/.test(t)) return 'pmi';
+  if (/\bpmi\b|purchasing managers/.test(t)) {
+    if (/composite/.test(t)) return 'pmi_comp';
+    if (/service/.test(t)) return 'pmi_svc';
+    if (/manufactur|\bmfg\b/.test(t)) return 'pmi_mfg';
+    return 'pmi';
+  }
+  if (/core retail/.test(t)) return 'retail_core';
   if (/retail/.test(t)) return 'retail';
   if (/unemployment|jobless|claims|payroll|employment|\bnfp\b/.test(t)) return 'labour';
   if (/\bcpi\b|\bipc\b|inflation/.test(t)) return 'cpi';
@@ -53,32 +59,75 @@ export function eventFamily(title) {
   return null;
 }
 
-export function linkNewsToCalendar(news, events) {
-  for (const n of news) {
-    if (!n.actual && !n.forecast) continue;
-    const t = Date.parse(n.published_at);
-    if (!Number.isFinite(t)) continue;
-    const hit = events.find((e) => n.currencies?.includes(e.currency)
-      && Math.abs(Date.parse(e.event_at) - t) <= MATCH_MS
-      && titlesClose(n.title, e.title));
-    if (!hit) continue;
-    n.calendar_title = hit.title;
-    if (hit.impact === 'High') n.impact = Math.max(n.impact || 1, 4);
-    hit.news_item_id = n.id || hit.news_item_id;
-    if (n.actual && !hit.actual) hit.actual = n.actual;
-  }
+export function eventPlace(title) {
+  const t = String(title || '').toLowerCase();
+  if (/french|france/.test(t)) return 'fr';
+  if (/german|germany/.test(t)) return 'de';
+  if (/\buk\b|britain|united kingdom|\bgfk\b/.test(t)) return 'gb';
+  if (/\bu\.?s\.?\b|united states/.test(t)) return 'us';
+  if (/japan|japanese/.test(t)) return 'jp';
+  if (/australia|australian/.test(t)) return 'au';
+  if (/canada|canadian/.test(t)) return 'ca';
+  if (/eurozone|euro zone|euro area/.test(t)) return 'ez';
+  return null;
 }
 
-function titlesClose(a, b) {
-  const fa = eventFamily(a);
-  const fb = eventFamily(b);
-  if (fa && fa === fb) return true;
+function kindsCompatible(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a === 'pmi' && b.startsWith('pmi')) return true;
+  if (b === 'pmi' && a.startsWith('pmi')) return true;
+  return false;
+}
+
+function wordOverlap(a, b) {
   const na = norm(a); const nb = norm(b);
+  if (!na || !nb) return false;
   if (na.includes(nb) || nb.includes(na)) return true;
   const wa = new Set(na.split(' ').filter((w) => w.length > 3));
   const wb = nb.split(' ').filter((w) => w.length > 3);
-  const inter = wb.filter((w) => wa.has(w)).length;
-  return inter >= 2;
+  return wb.filter((w) => wa.has(w)).length >= 2;
+}
+
+function matchQuality(news, event) {
+  if (!news.currencies?.includes(event.currency)) return -Infinity;
+  const dt = Math.abs(Date.parse(event.event_at) - Date.parse(news.published_at));
+  if (!Number.isFinite(dt) || dt > MATCH_MS) return -Infinity;
+  const kn = eventFamily(news.title);
+  const ke = eventFamily(event.title);
+  const pn = eventPlace(news.title);
+  const pe = eventPlace(event.title);
+  if (pn && pe && pn !== pe) return -Infinity;
+  if (kn && ke && !kindsCompatible(kn, ke)) return -Infinity;
+  if (kn && ke && kindsCompatible(kn, ke)) {
+    let q = 1 - dt / MATCH_MS;
+    if (kn === ke) q += 2;
+    else q += 0.6;
+    if (pn && pe && pn === pe) q += 2;
+    return q;
+  }
+  if (wordOverlap(news.title, event.title)) return 0.5 + (1 - dt / MATCH_MS);
+  return -Infinity;
+}
+
+export function linkNewsToCalendar(news, events) {
+  for (const n of news) {
+    if (!n.actual && !n.forecast) continue;
+    let best = null;
+    let bestQ = 0.2;
+    for (const e of events) {
+      const q = matchQuality(n, e);
+      if (q > bestQ) {
+        bestQ = q;
+        best = e;
+      }
+    }
+    if (!best) continue;
+    n.calendar_title = best.title;
+    if (best.impact === 'High') n.impact = Math.max(n.impact || 1, 4);
+    best.news_item_id = n.id || best.news_item_id;
+    if (n.actual && !best.actual) best.actual = n.actual;
+  }
 }
 
 function norm(s) {

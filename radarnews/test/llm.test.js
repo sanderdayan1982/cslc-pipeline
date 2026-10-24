@@ -18,6 +18,15 @@ test('prompt obliga a citar fingerprints y veta alucinación regional', () => {
   assert.match(prompt, /Sin catalizadores/);
 });
 
+test('Gemini sin campo impulse no finge un 0 táctico', () => {
+  const news = [{ fingerprint: 'fff', title: 'Fed hike', currencies: ['USD'] }];
+  const parsed = parseModelJson(JSON.stringify({
+    rows: [{ currency: 'USD', score: 30, drivers: ['Fed hike'], rationale: 'cita', citations: ['fff'] }],
+  }), news);
+  const usd = parsed.rows.find((r) => r.currency === 'USD');
+  assert.equal(usd.impulse, null);
+});
+
 test('salida JSON se rellena a 8 divisas y anula scores sin citas', () => {
   const news = [{ fingerprint: 'fff', title: 'Fed hike', currencies: ['USD'] }];
   const parsed = parseModelJson(JSON.stringify({

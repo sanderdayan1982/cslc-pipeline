@@ -100,8 +100,8 @@ DeItaone, FirstSquawk, ZeroHedge (fake), Reuters vía Google News, WSJ congelado
 3. Frescura: 3 días breaking/agencias, 30 días oficiales.
 4. Relevancia: oficiales solo política monetaria/mercado; breaking si divisa, dato o BREAKING real.
 5. Enriquece: divisas, impacto 1–5, categoría, ACTUAL/FORECAST/PREVIOUS, z-score heurístico.
-6. Enlaza calendario ±18 h por **familia de evento** (PMI, retail, labour…) y por solape de título. El `actual` se guarda por `id` de evento y **sobrevive** a un refresh de ForexFactory vacío o a un reinicio.
-7. Deduplica por fingerprint SHA-1 de `título|host+path` canónico (HTTP=HTTPS, sin `www`, sin query). Un mismo documento BoJ no se cuenta dos veces.
+6. Enlaza calendario ±18 h por **familia y lugar** (PMI manufacturing ≠ services; French ≠ German). El `actual` se guarda por `id` de evento y **sobrevive** a un refresh de ForexFactory vacío o a un reinicio.
+7. Deduplica por fingerprint canónico: HTTP=HTTPS; Telegram canal = mensaje (`t.me/canal/id` gana); InvestingLive por path del artículo. Un aviso de defensa civil no asigna USD/JPY/CHF; Hormuz/ataque sí. Gemini lee `GEMINI_API_KEY` del entorno, no solo `settings.json`.
 8. Inserta máx. 60 por ciclo, round-robin entre fuentes.
 9. Alertas de titulares nuevos (≤12 h) impacto ≥4 (o geo ≥3). Una publicación de datos = una alerta por divisa y 15 min.
 10. Informe de salud por fuente.

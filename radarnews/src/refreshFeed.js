@@ -5,7 +5,7 @@ import { insertNews, recentNews, listNews, saveScores, latestEngine, insertAlert
 import { classifyAgent, attachRanks, rankingAlerts, isNoEvidence } from './classifyCurrencies.js';
 import { classifyWithGemini } from './llm.js';
 import { fetchCalendar, linkNewsToCalendar, duePrealerts } from './calendar.js';
-import { readSettings } from './settings.js';
+import { publicGemini, readSettings } from './settings.js';
 
 async function fetchText(url) {
   const res = await fetch(url, {
@@ -135,10 +135,11 @@ export async function refreshFeed(db, { classify = true } = {}) {
     }));
 
     const settings = readSettings();
-    if (settings.gemini?.key) {
+    const gemini = publicGemini(settings);
+    if (gemini.key) {
       try {
         const prevG = latestEngine(db, 'gemini');
-        const g = await classifyWithGemini(news.filter((n) => Date.now() - Date.parse(n.published_at) <= WINDOWS.structuralMs || n.source_type === 'oficial').slice(0, 80), settings.gemini.key, settings.gemini.model);
+        const g = await classifyWithGemini(news.filter((n) => Date.now() - Date.parse(n.published_at) <= WINDOWS.structuralMs || n.source_type === 'oficial').slice(0, 80), gemini.key, gemini.model);
         const gRows = g.rows.map((r) => (isNoEvidence(r) ? { ...r, score: 0, bias: 'neutral', rank: null } : r));
         saveScores(db, 'gemini', gRows, randomUUID(), snapshot, g.regime_note || '');
         alerts.push(...rankingAlerts(prevG?.rows, gRows, 'Gemini').map((a) => {
